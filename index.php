@@ -128,8 +128,8 @@ $total = count($tasks);
             <hr>
             <h2 class="nav-label">TASK INVENTORY</h2>
             <nav class="navigation" aria-label="Task views">
-                <button type="button" class="nav-item selected" aria-current="page">
-                    <img class="icon" src="<?= iconPath('grid') ?>" alt="">
+                <button type="button" class="selected" aria-current="page">
+                    <img src="<?= iconPath('grid') ?>" alt="">
                     <span>My tasks</span>
                 </button>
             </nav>
@@ -148,7 +148,7 @@ $total = count($tasks);
                     Personal
                 </li>
                 <li><button type="button" class="text-button">
-                    <img class="icon" src="<?= iconPath('plus1') ?>" alt="">
+                    <img src="<?= iconPath($_SESSION['theme'] === 'light' ? 'plus2' : 'plus1') ?>" alt="">
                     <span>New category</span>
                 </button></li>
             </ul>
@@ -169,36 +169,30 @@ $total = count($tasks);
                     <p>Sunday, 1 November 2026</p>
                 </div>
                 <div class="search bevel">
-                    <img class="icon" src="<?= iconPath('search') ?>" alt="">
+                    <img src="<?= iconPath('search') ?>" alt="">
                     <span>Search task names or descriptions</span>
                 </div>
                 <div class="header-rule"></div>
                 <button type="button" class="notification-button" aria-label="Notifications">
-                    <img class="icon" src="<?= iconPath('bell') ?>" alt="">
+                    <img src="<?= iconPath('bell') ?>" alt="">
                 </button>
-                <a href="<?= $showForm ? 'index.php' : 'index.php?new=1' ?>" class="primary-button new-task" aria-controls="create-task" aria-expanded="<?= $showForm ? 'true' : 'false' ?>">
+                <a href="<?= $showForm ? 'index.php' : 'index.php?new=1' ?>" class="primary-button new-task" aria-expanded="<?= $showForm ? 'true' : 'false' ?>">
                     <img src="<?= iconPath('plus') ?>" alt=""><span>New task</span>
                 </a>
             </header>
             <?php if ($notice !== ''): ?><p class="notice" role="status"><?= escape($notice) ?></p><?php endif; ?>
             <?php if ($errors && !$showForm): ?><p class="errors" role="alert"><?= escape(implode(' ', $errors)) ?></p><?php endif; ?>
             <section class="summary" aria-label="Task summary">
-                <header class="summary-copy">
+                <header>
                     <h2>Your next task starts here.</h2>
-                    <p><?= $total ?> tasks in your inventory. Plan, track, and complete.</p>
+                    <p><?= $total ?> tasks this week. Plan, track, and complete.</p>
                 </header>
-                <div class="stat">
-                    <strong><?= str_pad((string) $counts['todo'], 2, '0', STR_PAD_LEFT) ?></strong>
-                    <span>To do</span>
-                </div>
-                <div class="stat">
-                    <strong><?= str_pad((string) $counts['overdue'], 2, '0', STR_PAD_LEFT) ?></strong>
-                    <span>Overdue</span>
-                </div>
-                <div class="stat complete-stat">
-                    <strong><?= str_pad((string) $counts['completed'], 2, '0', STR_PAD_LEFT) ?></strong>
-                    <span>Completed</span>
-                </div>
+                <?php foreach ($columns as $status => $label): ?>
+                    <div class="stat <?= $status ?>-stat">
+                        <strong><?= str_pad((string) $counts[$status], 2, '0', STR_PAD_LEFT) ?></strong>
+                        <span><?= $label ?></span>
+                    </div>
+                <?php endforeach; ?>
             </section>
             <div class="toolbar" aria-label="Task filters">
                 <div class="view-filters">
@@ -209,13 +203,13 @@ $total = count($tasks);
                 <div class="toolbar-rule"></div>
                 <div class="sort-filters">
                     <button type="button">
-                        <img class="icon" src="<?= iconPath('filter') ?>" alt="">
+                        <img src="<?= iconPath('filter') ?>" alt="">
                         <span>All priorities</span>
-                        <img class="icon" src="<?= iconPath('chevron') ?>" alt="">
+                        <img src="<?= iconPath('chevron') ?>" alt="">
                     </button>
                     <button type="button">
                         <span>Due date</span>
-                        <img class="icon" src="<?= iconPath('chevron') ?>" alt="">
+                        <img src="<?= iconPath('chevron') ?>" alt="">
                     </button>
                 </div>
             </div>
