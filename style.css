@@ -29,7 +29,7 @@
 }
 * { box-sizing: border-box; }
 body {
-    --sidebar-width: 232px;
+    --sidebar-width: 260px;
     margin: 0;
     background: var(--canvas);
     color: var(--text);
@@ -110,14 +110,14 @@ button, a, select { cursor: pointer; }
     height: 103px;
     padding-top: 7px;
     color: var(--accent);
-    font: 700 36px/1.1 var(--pixel);
+    font: 700 50px/1.1 var(--pixel);
 }
 .brand span + span { color: #d7e3be; }
-.brand small { margin-top: 2px; font-size: 8px; color: #f0f1e8; }
+.brand small { margin-top: 10px; font-size: 20px; margin-bottom: 5px; color: #f0f1e8; }
 .profile {
-    padding: 8px;
+    padding-top: 72px;
     white-space: nowrap;
-    font: 700 14px/1.4 var(--pixel);
+    font: 700 16px/1.4 var(--pixel);
 }
 .avatar {
     display: grid;
@@ -145,7 +145,7 @@ button, a, select { cursor: pointer; }
     display: block;
     margin-top: 2px;
     color: var(--muted);
-    font: 10px/1.4 'DM Sans', sans-serif;
+    font: 13px/1.4 'DM Sans', sans-serif;
 }
 .sidebar hr {
     width: 100%;
@@ -271,23 +271,23 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
     overflow-wrap: anywhere;
 }
 .card-meta { display: flex; justify-content: space-between; gap: 10px; }
-.card-meta, .card-footer { color: var(--muted); font-size: 11px; }
-.priority { font: 700 11px/1.4 var(--pixel); }
+.card-meta, .card-footer { color: var(--muted); font-size: 16px; }
+.priority { font: 700 16px/1.4 var(--pixel); }
 .high { color: #f49c79; }
 .medium { color: #b0da83; }
 .low { color: #8fcc67; }
-.task-heading { align-items: flex-start; font-size: 17px; }
+.task-heading { align-items: flex-start; font-size: 25px; }
 .task-checkbox {
     display: block;
     flex: none;
     width: 18px;
     height: 18px;
-    margin-top: 2px;
+    margin-top: 8px;
     border: 1px solid var(--border);
     background: var(--canvas);
 }
 .is-complete h3 { color: var(--muted); text-decoration: line-through; }
-.task-card > p { font-size: 13px; }
+.task-card > p { font-size: 16px; }
 .card-footer { flex-wrap: wrap; gap: 7px; }
 .card-actions { gap: 7px; margin-left: auto; }
 .add-task { padding: 12px; }
