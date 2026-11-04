@@ -14,6 +14,11 @@ function posted($key, $default = '') {
     return isset($_POST[$key]) && is_string($_POST[$key]) ? trim($_POST[$key]) : $default;
 }
 
+function textLength($value) {
+    $length = preg_match_all('/./us', $value);
+    return $length === false ? PHP_INT_MAX : $length;
+}
+
 function taskStatus($task) {
     if ($task['status'] === 'completed') return 'completed';
     return $task['due'] !== '' && strtotime($task['due']) < time() ? 'overdue' : 'todo';
@@ -26,25 +31,57 @@ $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
 $fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
 $errors = [];
 $showForm = isset($_GET['new']);
+$editing = false;
+$taskId = null;
 $notice = $_SESSION['notice'] ?? '';
 unset($_SESSION['notice']);
+
+if (isset($_GET['edit'])) {
+    $requestedTaskId = is_string($_GET['edit']) && ctype_digit($_GET['edit']) ? (int) $_GET['edit'] : null;
+    if ($requestedTaskId !== null && array_key_exists($requestedTaskId, $_SESSION['new_tasks'])) {
+        $taskId = $requestedTaskId;
+        $fields = array_merge($fields, $_SESSION['new_tasks'][$taskId]);
+        $showForm = true;
+        $editing = true;
+    } else {
+        http_response_code(404);
+        $errors[] = 'Task not found.';
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = posted('action');
     if (!hash_equals($_SESSION['token'], posted('token'))) {
         http_response_code(403);
         $errors[] = 'Your form expired. Reload the page and try again.';
+
+    // Toggle Sidebar Function
     } elseif ($action === 'menu') {
         $_SESSION['collapsed'] = !$_SESSION['collapsed'];
+
+    // Toggle Theme Function
     } elseif ($action === 'theme') {
         $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
-    } elseif ($action === 'create') {
+
+    // Create and Update/Edit Task Function
+    } elseif ($action === 'create' || $action === 'update') {
+        $editing = $action === 'update';
         $showForm = true;
+        if ($editing) {
+            $postedTaskId = posted('task_id');
+            $taskId = $postedTaskId;
+            if ($postedTaskId === '' || !ctype_digit($postedTaskId) || !array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
+                http_response_code(404);
+                $errors[] = 'Task not found.';
+            } else {
+                $taskId = (int) $postedTaskId;
+            }
+        }
         foreach ($fields as $key => $default) $fields[$key] = posted($key, $default);
-        if (mb_strlen($fields['name']) < 3 || mb_strlen($fields['name']) > 100) {
+        if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
             $errors[] = 'Task name must contain 3 to 100 characters.';
         }
-        if ($fields['description'] === '' || mb_strlen($fields['description']) > 255) {
+        if ($fields['description'] === '' || textLength($fields['description']) > 255) {
             $errors[] = 'Description must contain 1 to 255 characters.';
         }
         if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) $errors[] = 'Choose a valid priority.';
@@ -55,8 +92,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due']) $errors[] = 'Enter a valid due date and time.';
         }
         if (!$errors) {
-            $_SESSION['new_tasks'][] = $fields;
-            $_SESSION['notice'] = 'Task created.';
+            if ($editing) {
+                $_SESSION['new_tasks'][$taskId] = $fields;
+                $_SESSION['notice'] = 'Task updated.';
+            } else {
+                $_SESSION['new_tasks'][] = $fields;
+                $_SESSION['notice'] = 'Task created.';
+            }
         }
     } else {
         http_response_code(400);
@@ -83,9 +125,10 @@ $tasks = [];
 foreach ($samples as [$name, $description, $due, $priority, $category, $status]) {
     $tasks[] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['sample' => true];
 }
-foreach ($_SESSION['new_tasks'] as $task) {
+foreach ($_SESSION['new_tasks'] as $taskId => $task) {
     $task['status'] = taskStatus($task);
     $task['due'] = $task['due'] !== '' ? date('M j, Y, g:i A', strtotime($task['due'])) : 'No due date';
+    $task['session_id'] = $taskId;
     $tasks[] = $task;
 }
 $counts = array_fill_keys(array_keys($columns), 0);
@@ -243,6 +286,13 @@ $total = count($tasks);
                                             <button type="button" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
                                             <button type="button" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
                                         </div>
+                                    <?php else: ?>
+                                        <div class="card-actions">
+                                            <form action="index.php" method="GET" class="control-form">
+                                                <input type="hidden" name="edit" value="<?= (int) $task['session_id'] ?>">
+                                                <button type="submit" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
+                                            </form>
+                                        </div>
                                     <?php endif; ?>
                                 </footer>
                             </article>
@@ -260,7 +310,7 @@ $total = count($tasks);
             <aside id="create-task" class="task-panel" aria-labelledby="create-title">
                 <section class="create-panel">
                     <header class="form-heading">
-                        <h2 id="create-title">Create task</h2>
+                        <h2 id="create-title"><?= $editing ? 'Edit task' : 'Create task' ?></h2>
                         <a href="index.php" class="secondary-button">Close</a>
                     </header>
                     <p>Add details to plan your next step.</p>
@@ -271,7 +321,8 @@ $total = count($tasks);
                     <?php endif; ?>
                     <form action="index.php" method="POST" class="create-form">
                         <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                        <input type="hidden" name="action" value="create">
+                        <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
+                        <?php if ($editing): ?><input type="hidden" name="task_id" value="<?= escape($taskId) ?>"><?php endif; ?>
                         <label for="task-name">Task name *</label>
                         <input id="task-name" name="name" value="<?= escape($fields['name']) ?>" placeholder="Enter a task name" aria-describedby="name-help" required minlength="3" maxlength="100" autofocus>
                         <small id="name-help">At least 3 characters, up to 100.</small>
@@ -296,7 +347,7 @@ $total = count($tasks);
                             <option value="completed" <?= $fields['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
                         </select>
                         <footer class="form-actions">
-                            <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create task</button>
+                            <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt=""><?= $editing ? 'Update task' : 'Create task' ?></button>
                             <button type="reset" class="secondary-button">Reset</button>
                         </footer>
                     </form>
