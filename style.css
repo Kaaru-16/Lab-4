@@ -176,7 +176,7 @@ button, a, select { cursor: pointer; }
 .coursework { background: var(--accent); }
 .study, .completed .status-marker { background: #8fcc67; }
 .personal { background: #7364a9; }
-.overdue .status-marker { background: #e24d4d; }
+.overdue .status-marker { background: #FF5C5C; }
 .selected, .view-filters .selected {
     background: var(--green);
     color: var(--accent);
@@ -193,10 +193,10 @@ button, a, select { cursor: pointer; }
 }
 .appearance-switch { width: 97px; height: 36px; padding: 4px; background: #35492b; }
 .appearance-switch span { display: block; width: 45px; height: 28px; background: white; }
-.sidebar-collapsed { --sidebar-width: 157px; }
+.sidebar-collapsed { --sidebar-width: 190px; }
 .sidebar-collapsed .sidebar { align-items: center; }
 .sidebar-collapsed .sidebar > :not(.control-form):not(.brand) { display: none; }
-.sidebar-collapsed .brand { width: 121px; }
+.sidebar-collapsed .brand { width: 165px; }
 
 /* Main content */
 .workspace {
@@ -247,13 +247,13 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .stat { display: flex; flex-direction: column; gap: 2px; flex: none; width: 120px; font-size: 16px; }
 .stat strong { font: 700 28px/1.4 var(--pixel); }
 .todo-stat strong { color: white; }
-.overdue-stat strong { color: #e24d4d; }
+.overdue-stat strong { color: #FF5C5C; }
 .completed-stat strong { color: var(--accent); }
 .view-filters { display: flex; flex-wrap: wrap; gap: 10px; }
 .view-filters button, .sort-filters button {
     padding: 11px;
     background: var(--surface);
-    font-size: 13px;
+    font-size: 17px;
     white-space: nowrap;
 }
 .view-filters button { color: var(--muted); }
@@ -265,7 +265,7 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .task-column, .task-card { display: grid; gap: 14px; min-width: 0; }
 .column-heading { min-height: 39px; padding: 4px; gap: 8px; }
 .column-heading h2 { font-size: 18px; }
-.task-count { padding: 4px 8px; background: #3b4d30; color: var(--accent); font: 700 11px/1.4 var(--pixel); }
+.task-count { padding: 4px 8px; background: #3b4d30; color: var(--accent); font: 700 15px/1.4 var(--pixel); }
 .task-card {
     gap: 12px;
     padding: 18px;

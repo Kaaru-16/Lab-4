@@ -25,6 +25,7 @@ function taskStatus($task) {
 }
 
 $_SESSION['new_tasks'] = $_SESSION['new_tasks'] ?? [];
+$_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Personal'];
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
@@ -58,10 +59,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Toggle Sidebar Function
     } elseif ($action === 'menu') {
         $_SESSION['collapsed'] = !$_SESSION['collapsed'];
-
+    // Toggle Task Completion Function
+    } elseif ($action === 'toggle_complete') {
+        $postedTaskId = posted('task_id');
+        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
+            $taskId = (int) $postedTaskId;
+            $currentStatus = $_SESSION['new_tasks'][$taskId]['status'] ?? 'todo';
+            // Toggle between completed and todo
+            $_SESSION['new_tasks'][$taskId]['status'] = ($currentStatus === 'completed') ? 'todo' : 'completed';
+            $_SESSION['notice'] = 'Task status updated.';
+        } else {
+            http_response_code(404);
+            $errors[] = 'Task not found.';
+        }
     // Toggle Theme Function
     } elseif ($action === 'theme') {
         $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
+    } elseif ($action === 'create_category') {
+        $catName = trim(posted('category_name'));
+        if ($catName !== '' && textLength($catName) <= 50) {
+            if (!in_array($catName, $_SESSION['categories'], true)) {
+                $_SESSION['categories'][] = $catName;
+                $_SESSION['notice'] = 'Category created.';
+            }
+        } else {
+            $errors[] = 'Invalid category name.';
+        }
 
     // Delete Task Function
     } elseif ($action === 'delete') {
@@ -208,19 +231,19 @@ $total = count($tasks);
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
-                <li>
-                    <span class="category-marker coursework"></span>
-                    Coursework
-                </li>
-                <li>
-                    <span class="category-marker study"></span>
-                    Study
-                </li>
-                <li>
-                    <span class="category-marker personal"></span>
-                    Personal
-                </li>
-                <li><button type="button" class="text-button">
+                <?php 
+                $markers = ['coursework', 'study', 'personal'];
+                $i = 0;
+                foreach ($_SESSION['categories'] as $cat): 
+                    $markerClass = $markers[$i % count($markers)];
+                    $i++;
+                ?>
+                    <li>
+                        <span class="category-marker <?= $markerClass ?>"></span>
+                        <?= escape($cat) ?>
+                    </li>
+                <?php endforeach; ?>
+                <li><button type="button" class="text-button" onclick="openCategoryModal()">
                     <img src="<?= iconPath($_SESSION['theme'] === 'light' ? 'plus2' : 'plus1') ?>" alt="">
                     <span>New category</span>
                 </button></li>
@@ -238,8 +261,8 @@ $total = count($tasks);
         <main class="workspace">
             <header class="page-header">
                 <div class="heading">
-                    <h1>Task inventory</h1>
-                    <p>Sunday, 1 November 2026</p>
+                    <h1>Task Inventory</h1>
+                    <p><?= date('l, j F Y') ?></p>
                 </div>
                 <form action="index.php" method="GET" class="search bevel" style="margin:0; background:var(--surface);">
                     <img src="<?= iconPath('search') ?>" alt="">
@@ -310,9 +333,21 @@ $total = count($tasks);
                                     <span><?= escape($task['category']) ?></span>
                                 </header>
                                 <h3 class="task-heading">
-                                    <span class="task-checkbox" aria-hidden="true">
-                                        <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
-                                    </span>
+                                    <?php if (!empty($task['sample'])): ?>
+                                        <span class="task-checkbox" aria-hidden="true">
+                                            <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <form id="toggle-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" style="display:inline; margin:0;">
+                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                            <input type="hidden" name="action" value="toggle_complete">
+                                            <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
+                                            <label class="task-checkbox" style="cursor:pointer;" aria-label="Toggle task completion">
+                                                <input type="checkbox" <?= $status === 'completed' ? 'checked' : '' ?> onchange="document.getElementById('toggle-form-<?= (int) $task['session_id'] ?>').submit();" style="display:none;">
+                                                <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
+                                            </label>
+                                        </form>
+                                    <?php endif; ?>
                                     <span><?= escape($task['name']) ?></span>
                                 </h3>
                                 <p><?= escape($task['description']) ?></p>
@@ -343,7 +378,7 @@ $total = count($tasks);
                         <?php endforeach; ?>
                         <?php if ($status === 'todo'): ?>
                             <div class="add-task">
-                                <button type="button" class="text-button"><img src="<?= iconPath('plus1') ?>" alt="">Add task</button>
+                                <a href="index.php?new=1" class="text-button"><img src="<?= iconPath('plus1') ?>" alt="">Add task</a>
                             </div>
                         <?php endif; ?>
                     </section>
@@ -383,7 +418,9 @@ $total = count($tasks);
                         </fieldset>
                         <label for="task-category">Category</label>
                         <select id="task-category" name="category">
-                            <?php foreach (['Coursework', 'Study', 'Personal'] as $category): ?><option <?= $fields['category'] === $category ? 'selected' : '' ?>><?= $category ?></option><?php endforeach; ?>
+                            <?php foreach ($_SESSION['categories'] as $category): ?>
+                                <option value="<?= escape($category) ?>" <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option>
+                            <?php endforeach; ?>
                         </select>
                         <label for="task-status">Status</label>
                         <select id="task-status" name="status">
@@ -398,17 +435,37 @@ $total = count($tasks);
                 </section>
             </aside>
         <?php endif; ?>
+
+        <!-- Custom Centered Delete Confirmation Modal -->
         <div id="delete-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
             <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:400px; max-width:90%; display:grid; gap:20px;">
-                <h2 style="font-size:24px; color:var(--text);">Delete</h2>
-                <p style="color:var(--muted); font-size:14px;">Are you sure you want to delete this task?</p>
+                <h2 style="font-size:32px; color:var(--text); font-family:var(--pixel);">Delete</h2>
+                <p style="color:var(--muted); font-size:18px;">Are you sure you want to delete this task?</p>
                 <div style="display:flex; gap:10px;">
-                    <button type="button" id="confirm-delete-btn" style="flex:1; padding:12px; border:2px solid #263024; background:#b54730; box-shadow:var(--bevel); color:#f0f1e8; font:700 13px/1.4 var(--pixel); cursor:pointer;">Delete task</button>
-                    <button type="button" onclick="closeDeleteModal()" style="flex:1; padding:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font:700 13px/1.4 var(--pixel); cursor:pointer;">Cancel</button>
+                    <button type="button" id="confirm-delete-btn" style="flex:1; padding:12px; border:2px solid #263024; background:#b54730; box-shadow:var(--bevel); color:#f0f1e8; font:700 18px/1.4 var(--pixel); cursor:pointer;">Delete task</button>
+                    <button type="button" onclick="closeDeleteModal()" style="flex:1; padding:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font:700 18px/1.4 var(--pixel); cursor:pointer;">Cancel</button>
                 </div>
             </div>
         </div>
+
+        <div id="category-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
+            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:390px; max-width:90%; display:grid; gap:20px;">
+                <h2 style="font-size:24px; color:var(--text); font-family:var(--pixel);">Create Category</h2>
+                <form action="index.php" method="POST" style="display:grid; gap:16px;">
+                    <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                    <input type="hidden" name="action" value="create_category">
+                    <label for="modal-cat-name" style="font:700 18px/1.4 var(--pixel); color:var(--text);">Category name</label>
+                    <input id="modal-cat-name" name="category_name" placeholder="Enter a category name" required maxlength="50" style="width:100%; padding:14px; border:2px solid var(--border); background:var(--canvas); color:var(--text); font:inherit; box-shadow:var(--bevel);">
+                    <div style="display:flex; gap:10px; margin-top:4px;">
+                        <button type="submit" class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
+                        <button type="button" onclick="closeCategoryModal()" class="secondary-button" style="color: #000;">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <script>
+            // Delete Modal Script
             let activeDeleteTaskId = null;
             function openDeleteModal(taskId) {
                 activeDeleteTaskId = taskId;
@@ -423,6 +480,15 @@ $total = count($tasks);
                     document.getElementById('delete-form-' + activeDeleteTaskId).submit();
                 }
             });
+
+            // Category Modal Script
+            function openCategoryModal() {
+                document.getElementById('category-modal-overlay').style.display = 'grid';
+                document.getElementById('modal-cat-name').focus();
+            }
+            function closeCategoryModal() {
+                document.getElementById('category-modal-overlay').style.display = 'none';
+            }
         </script>
     </body>
 </html>
