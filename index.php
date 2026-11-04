@@ -331,11 +331,11 @@ $total = count($tasks);
                                                 <input type="hidden" name="edit" value="<?= (int) $task['session_id'] ?>">
                                                 <button type="submit" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
                                             </form>
-                                            <form action="index.php" method="POST" class="control-form">
+                                            <form id="delete-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="control-form">
                                                 <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                                <button type="submit" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
+                                                <button type="button" onclick="openDeleteModal(<?= (int) $task['session_id'] ?>)" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
                                             </form>
                                         </div>
                                     <?php endif; ?>
@@ -399,5 +399,31 @@ $total = count($tasks);
                 </section>
             </aside>
         <?php endif; ?>
+        <div id="delete-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
+            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:400px; max-width:90%; display:grid; gap:20px;">
+                <h2 style="font-size:24px; color:var(--text);">Delete</h2>
+                <p style="color:var(--muted); font-size:14px;">Are you sure you want to delete this task?</p>
+                <div style="display:flex; gap:10px;">
+                    <button type="button" id="confirm-delete-btn" style="flex:1; padding:12px; border:2px solid #263024; background:#b54730; box-shadow:var(--bevel); color:#f0f1e8; font:700 13px/1.4 var(--pixel); cursor:pointer;">Delete task</button>
+                    <button type="button" onclick="closeDeleteModal()" style="flex:1; padding:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font:700 13px/1.4 var(--pixel); cursor:pointer;">Cancel</button>
+                </div>
+            </div>
+        </div>
+        <script>
+            let activeDeleteTaskId = null;
+            function openDeleteModal(taskId) {
+                activeDeleteTaskId = taskId;
+                document.getElementById('delete-modal-overlay').style.display = 'grid';
+            }
+            function closeDeleteModal() {
+                activeDeleteTaskId = null;
+                document.getElementById('delete-modal-overlay').style.display = 'none';
+            }
+            document.getElementById('confirm-delete-btn').addEventListener('click', function() {
+                if (activeDeleteTaskId !== null) {
+                    document.getElementById('delete-form-' + activeDeleteTaskId).submit();
+                }
+            });
+        </script>
     </body>
 </html>

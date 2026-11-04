@@ -1,17 +1,11 @@
-/* Fonts and theme colors */
 @font-face {
-    font-family: 'DM Sans';
-    src: url('font/dm-sans-regular.ttf');
+    font-family: 'VCR OSD Mono';
+    src: url('font/VCR_OSD_MONO_1.001.ttf');
     font-display: swap;
 }
 @font-face {
     font-family: 'Pixelify Sans';
-    src: url('font/pixelify-sans-regular.ttf');
-    font-display: swap;
-}
-@font-face {
-    font-family: 'Pixelify Sans';
-    src: url('font/pixelify-sans-bold.ttf');
+    src: url('font/VCR_OSD_MONO_1.001.ttf');
     font-weight: 700;
     font-display: swap;
 }
@@ -23,7 +17,7 @@
     --muted: #a5b49c;
     --green: #3b5b2d;
     --accent: #b6db74;
-    --pixel: 'Pixelify Sans', monospace;
+    --pixel: 'VCR OSD Mono', monospace;
     --bevel: 3px 3px 0 #0004, inset 2px 2px 0 #fff4;
 }
 .light-theme {
