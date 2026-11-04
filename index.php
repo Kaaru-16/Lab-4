@@ -103,10 +103,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $showForm = true;
         if ($editing) {
             $postedTaskId = posted('task_id');
-            $taskId = $postedTaskId;
             if ($postedTaskId === '' || !ctype_digit($postedTaskId) || !array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
                 http_response_code(404);
                 $errors[] = 'Task not found.';
+                $editing = false;
             } else {
                 $taskId = (int) $postedTaskId;
             }
@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Description must contain 1 to 255 characters.';
         }
         if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) $errors[] = 'Choose a valid priority.';
-        if (!in_array($fields['category'], ['Coursework', 'Study', 'Personal'], true)) $errors[] = 'Choose a valid category.';
+        if (!in_array($fields['category'], $_SESSION['categories'], true)) $errors[] = 'Choose a valid category.';
         if (!in_array($fields['status'], ['todo', 'completed'], true)) $errors[] = 'Choose a valid status.';
         if ($fields['due'] !== '') {
             $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
@@ -432,10 +432,12 @@ if ($viewFilter === 'active') {
                             <?php foreach ($errors as $error): ?><li><?= escape($error) ?></li><?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
-                    <form action="index.php" method="POST" class="create-form">
+                    <form action="index.php<?= $editing && $taskId !== null ? '?edit=' . (int) $taskId : '' ?>" method="POST" class="create-form">
                         <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                         <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
-                        <?php if ($editing): ?><input type="hidden" name="task_id" value="<?= escape($taskId) ?>"><?php endif; ?>
+                        <?php if ($editing && $taskId !== null): ?>
+                            <input type="hidden" name="task_id" value="<?= (int) $taskId ?>">
+                        <?php endif; ?>
                         <label for="task-name">Task name *</label>
                         <input id="task-name" name="name" value="<?= escape($fields['name']) ?>" placeholder="Enter a task name" aria-describedby="name-help" required minlength="3" maxlength="100" autofocus>
                         <small id="name-help">At least 3 characters, up to 100.</small>
