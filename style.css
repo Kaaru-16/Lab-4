@@ -33,7 +33,7 @@ body {
     margin: 0;
     background: var(--canvas);
     color: var(--text);
-    font: 14px/1.4 'DM Sans', sans-serif;
+    font: 18px/1.4 'DM Sans', sans-serif;
 }
 h1, h2, h3, p, figure, ul { margin: 0; }
 h1, h2, h3 { font-family: var(--pixel); }
@@ -77,7 +77,7 @@ button, a, select { cursor: pointer; }
     align-items: center;
     gap: 10px;
 }
-.text-button { color: var(--muted); font-size: 13px; }
+.text-button { color: var(--muted); font-size: 16px; }
 
 /* Sidebar */
 .sidebar {
@@ -145,7 +145,7 @@ button, a, select { cursor: pointer; }
     display: block;
     margin-top: 2px;
     color: var(--muted);
-    font: 13px/1.4 'DM Sans', sans-serif;
+    font: 15px/1.4 'DM Sans', sans-serif;
 }
 .sidebar hr {
     width: 100%;
@@ -153,14 +153,14 @@ button, a, select { cursor: pointer; }
     border: 0;
     border-top: 1px solid var(--surface);
 }
-.nav-label, .category-label { font-size: 12px; color: var(--accent); }
-.category-label { color: var(--muted); font-size: 11px; }
+.nav-label, .category-label { font-size: 16px; color: var(--accent); }
+.category-label { color: var(--muted); font-size: 16px; }
 .navigation, .categories { display: grid; gap: 22px; }
 .navigation button {
     width: 100%;
     padding: 14px;
     text-align: left;
-    font: 700 15px/1.4 var(--pixel);
+    font: 700 18px/1.4 var(--pixel);
 }
 .categories { padding: 0; list-style: none; }
 .category-marker, .status-marker {
@@ -179,12 +179,12 @@ button, a, select { cursor: pointer; }
     font-weight: 700;
 }
 .appearance { margin-top: auto; padding-top: 22px; }
-.appearance h2 { color: var(--muted); font: 700 10px/1.4 'DM Sans', sans-serif; }
+.appearance h2 { color: var(--muted); font: 700 14px/1.4 'DM Sans', sans-serif; }
 .switch-wrap {
     display: flex;
     align-items: center;
     height: 56px;
-    margin-top: 10px;
+    margin-top: 2px;
     padding: 5px;
 }
 .appearance-switch { width: 97px; height: 36px; padding: 4px; background: #35492b; }
@@ -240,7 +240,7 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .summary header { flex: 0 0 488px; }
 .summary h2 { font-size: 28px; }
 .summary p { margin-top: 6px; }
-.stat { display: flex; flex-direction: column; gap: 2px; flex: none; width: 120px; font-size: 13px; }
+.stat { display: flex; flex-direction: column; gap: 2px; flex: none; width: 120px; font-size: 16px; }
 .stat strong { font: 700 28px/1.4 var(--pixel); }
 .todo-stat strong { color: white; }
 .overdue-stat strong { color: #e24d4d; }
@@ -272,7 +272,7 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 }
 .card-meta { display: flex; justify-content: space-between; gap: 10px; }
 .card-meta, .card-footer { color: var(--muted); font-size: 16px; }
-.priority { font: 700 16px/1.4 var(--pixel); }
+.priority { font: 700 18px/1.4 var(--pixel); }
 .high { color: #f49c79; }
 .medium { color: #b0da83; }
 .low { color: #8fcc67; }
@@ -282,7 +282,7 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
     flex: none;
     width: 18px;
     height: 18px;
-    margin-top: 8px;
+    margin-top: 9px;
     border: 1px solid var(--border);
     background: var(--canvas);
 }
@@ -290,6 +290,15 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .task-card > p { font-size: 16px; }
 .card-footer { flex-wrap: wrap; gap: 7px; }
 .card-actions { gap: 7px; margin-left: auto; }
+.card-footer img {
+    margin-top: -3px;
+    width: 25px;
+    height: 25px;
+}
+.card-actions img {
+    width: 25px;
+    height: 25px;
+}
 .add-task { padding: 12px; }
 
 /* Task form beside the board */
