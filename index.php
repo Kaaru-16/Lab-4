@@ -1,6 +1,7 @@
 <?php
 session_start();
-// unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks in the session. !!DONT REMOVE THIS PLS!!
+//unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks added in the session. !!DONT REMOVE THIS PLS!!
+//unset($_SESSION['categories']); // for testing in local environment, This will clear all categories added in the session. !!DONT REMOVE THIS PLS!!
 date_default_timezone_set('Asia/Taipei');
 
 function escape($value) {
@@ -31,6 +32,9 @@ $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
 $fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
+$selectedCategory = isset($_GET['category']) && is_string($_GET['category']) && in_array($_GET['category'], $_SESSION['categories'], true)
+    ? $_GET['category']
+    : null;
 $errors = [];
 $showForm = isset($_GET['new']);
 $showCategoryForm = isset($_GET['new_category']);
@@ -151,6 +155,11 @@ foreach ($_SESSION['new_tasks'] as $taskId => $task) {
     $task['session_id'] = $taskId;
     $tasks[] = $task;
 }
+if ($selectedCategory !== null) {
+    $tasks = array_filter($tasks, static function ($task) use ($selectedCategory) {
+        return $task['category'] === $selectedCategory;
+    });
+}
 $counts = array_fill_keys(array_keys($columns), 0);
 foreach ($tasks as $task) $counts[$task['status']]++;
 $total = count($tasks);
@@ -191,17 +200,19 @@ $total = count($tasks);
             <hr>
             <h2 class="nav-label">TASK INVENTORY</h2>
             <nav class="navigation" aria-label="Task views">
-                <button type="button" class="selected" aria-current="page">
+                <a href="index.php" class="<?= $selectedCategory === null ? 'selected' : '' ?>" <?= $selectedCategory === null ? 'aria-current="page"' : '' ?>>
                     <img src="<?= iconPath('grid') ?>" alt="">
                     <span>My tasks</span>
-                </button>
+                </a>
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
                 <?php foreach ($_SESSION['categories'] as $category): ?>
                     <li>
-                        <span class="category-marker <?= in_array($category, ['Coursework', 'Study', 'Personal'], true) ? strtolower($category) : '' ?>"></span>
-                        <?= escape($category) ?>
+                        <a href="index.php?category=<?= rawurlencode($category) ?>" class="<?= $selectedCategory === $category ? 'selected' : '' ?>" <?= $selectedCategory === $category ? 'aria-current="page"' : '' ?>>
+                            <span class="category-marker <?= in_array($category, ['Coursework', 'Study', 'Personal'], true) ? strtolower($category) : '' ?>"></span>
+                            <?= escape($category) ?>
+                        </a>
                     </li>
                 <?php endforeach; ?>
                 <li><a href="index.php?new_category=1" class="text-button">

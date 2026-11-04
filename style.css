@@ -78,7 +78,7 @@ button, a, select { cursor: pointer; }
     background: var(--surface);
     box-shadow: none;
 }
-.text-button, .profile, .navigation button, .categories li {
+.text-button, .profile, .navigation button, .navigation a {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -162,13 +162,18 @@ button, a, select { cursor: pointer; }
 .nav-label, .category-label { font-size: 12px; color: var(--accent); }
 .category-label { color: var(--muted); font-size: 11px; }
 .navigation, .categories { display: grid; gap: 22px; }
-.navigation button {
+.navigation button, .navigation a {
     width: 100%;
     padding: 14px;
     text-align: left;
     font: 700 15px/1.4 var(--pixel);
 }
 .categories { padding: 0; list-style: none; }
+.categories li > a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 .category-marker, .status-marker {
     width: 8px;
     height: 8px;
@@ -427,7 +432,7 @@ body:has(.category-panel) { grid-template-columns: minmax(0, 1fr) 468px; }
     .brand small { display: block; font-size: 7px; }
     .profile, .sidebar hr, .nav-label, .category-label, .categories { display: none; }
     .navigation, .appearance { grid-column: 1 / -1; }
-    .navigation button { padding: 10px; }
+    .navigation button, .navigation a { padding: 10px; }
     .appearance { padding: 0; }
     .switch-wrap { height: 44px; margin-top: 0; }
     .workspace { padding: 20px 16px; }
