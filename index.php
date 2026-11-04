@@ -63,6 +63,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'theme') {
         $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
 
+    // Delete Task Function
+    } elseif ($action === 'delete') {
+        $postedTaskId = posted('task_id');
+        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
+            unset($_SESSION['new_tasks'][(int) $postedTaskId]);
+            $_SESSION['notice'] = 'Task deleted.';
+        } else {
+            http_response_code(404);
+            $errors[] = 'Task not found.';
+        }
+
     // Create and Update/Edit Task Function
     } elseif ($action === 'create' || $action === 'update') {
         $editing = $action === 'update';
@@ -112,13 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $samples = [
-    ['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'Today, 10:00 AM', 'high', 'Coursework', 'todo'],
-    ['Review PHP forms', 'Read the notes on POST and validation.', 'Today, 1:00 PM', 'medium', 'Study', 'todo'],
-    ['Organize project files', 'Group references, screenshots, and notes.', 'Tomorrow, 9:00 AM', 'low', 'Personal', 'todo'],
-    ['Design the task manager', 'Refine the board, form, and task controls.', 'Wednesday, October 23, 11:30 AM', 'high', 'Coursework', 'overdue'],
-    ['Study session handling', 'Review task persistence across page reloads.', 'Yesterday, 2:00 PM', 'medium', 'Study', 'overdue'],
-    ['Read the lab brief', 'List the required CRUD operations.', 'Completed today', 'low', 'Coursework', 'completed'],
-    ['Set up the workspace', 'Create the project folder and collect assets.', 'Completed today', 'low', 'Coursework', 'completed'],
+    /*['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'Today, 10:00 AM', 'high', 'Coursework', 'todo'], SAMPLE DATA FORMAT PAG MAGLALAGAY NG DUMMY DATA*/
 ];
 $columns = ['todo' => 'To do', 'overdue' => 'Overdue', 'completed' => 'Completed'];
 $tasks = [];
@@ -211,10 +216,10 @@ $total = count($tasks);
                     <h1>Task inventory</h1>
                     <p>Sunday, 1 November 2026</p>
                 </div>
-                <div class="search bevel">
+                <form action="index.php" method="GET" class="search bevel" style="margin:0; background:var(--surface);">
                     <img src="<?= iconPath('search') ?>" alt="">
-                    <span>Search task names or descriptions</span>
-                </div>
+                    <input type="text" name="search" value="<?= escape($_GET['search'] ?? '') ?>" placeholder="Search task names or descriptions" style="border:0; background:transparent; width:100%; outline:none;">
+                </form>
                 <div class="header-rule"></div>
                 <button type="button" class="notification-button" aria-label="Notifications">
                     <img src="<?= iconPath('bell') ?>" alt="">
@@ -244,17 +249,21 @@ $total = count($tasks);
                     <button type="button">Completed · <?= $counts['completed'] ?></button>
                 </div>
                 <div class="toolbar-rule"></div>
-                <div class="sort-filters">
-                    <button type="button">
-                        <img src="<?= iconPath('filter') ?>" alt="">
-                        <span>All priorities</span>
-                        <img src="<?= iconPath('chevron') ?>" alt="">
-                    </button>
-                    <button type="button">
+                <form action="index.php" method="GET" class="sort-filters">
+                    <?php if (isset($_GET['search']) && $_GET['search'] !== ''): ?>
+                        <input type="hidden" name="search" value="<?= escape($_GET['search']) ?>">
+                    <?php endif; ?>
+                    <select name="priority" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
+                        <option value="">All priorities</option>
+                        <option value="high" <?= (($_GET['priority'] ?? '') === 'high') ? 'selected' : '' ?>>High priority</option>
+                        <option value="medium" <?= (($_GET['priority'] ?? '') === 'medium') ? 'selected' : '' ?>>Medium priority</option>
+                        <option value="low" <?= (($_GET['priority'] ?? '') === 'low') ? 'selected' : '' ?>>Low priority</option>
+                    </select>
+                    <button type="button" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
                         <span>Due date</span>
                         <img src="<?= iconPath('chevron') ?>" alt="">
                     </button>
-                </div>
+                </form>
             </div>
             <section class="task-board" aria-label="Task inventory board">
                 <?php foreach ($columns as $status => $label): ?>
@@ -291,6 +300,12 @@ $total = count($tasks);
                                             <form action="index.php" method="GET" class="control-form">
                                                 <input type="hidden" name="edit" value="<?= (int) $task['session_id'] ?>">
                                                 <button type="submit" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
+                                            </form>
+                                            <form action="index.php" method="POST" class="control-form">
+                                                <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                                <input type="hidden" name="action" value="delete">
+                                                <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
+                                                <button type="submit" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
                                             </form>
                                         </div>
                                     <?php endif; ?>
