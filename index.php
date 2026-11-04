@@ -136,6 +136,31 @@ foreach ($_SESSION['new_tasks'] as $taskId => $task) {
     $task['session_id'] = $taskId;
     $tasks[] = $task;
 }
+$searchQuery = trim($_GET['search'] ?? '');
+$priorityFilter = $_GET['priority'] ?? '';
+$dueStatusFilter = $_GET['due_status'] ?? '';
+
+if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
+    $tasks = array_filter($tasks, function($task) use ($searchQuery, $priorityFilter, $dueStatusFilter) {
+        $matchesSearch = true;
+        $matchesPriority = true;
+        $matchesDueStatus = true;
+
+        if ($searchQuery !== '') {
+            $matchesSearch = stripos($task['name'], $searchQuery) !== false || stripos($task['description'], $searchQuery) !== false;
+        }
+
+        if ($priorityFilter !== '') {
+            $matchesPriority = strtolower($task['priority']) === strtolower($priorityFilter);
+        }
+
+        if ($dueStatusFilter !== '') {
+            $matchesDueStatus = strtolower($task['status']) === strtolower($dueStatusFilter);
+        }
+
+        return $matchesSearch && $matchesPriority && $matchesDueStatus;
+    });
+}
 $counts = array_fill_keys(array_keys($columns), 0);
 foreach ($tasks as $task) $counts[$task['status']]++;
 $total = count($tasks);
@@ -259,10 +284,15 @@ $total = count($tasks);
                         <option value="medium" <?= (($_GET['priority'] ?? '') === 'medium') ? 'selected' : '' ?>>Medium priority</option>
                         <option value="low" <?= (($_GET['priority'] ?? '') === 'low') ? 'selected' : '' ?>>Low priority</option>
                     </select>
-                    <button type="button" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
-                        <span>Due date</span>
-                        <img src="<?= iconPath('chevron') ?>" alt="">
-                    </button>
+                    <?php if (isset($_GET['priority']) && $_GET['priority'] !== ''): ?>
+                        <input type="hidden" name="priority" value="<?= escape($_GET['priority']) ?>">
+                    <?php endif; ?>
+                    <select name="due_status" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
+                        <option value="">Due date</option>
+                        <option value="todo" <?= (($_GET['due_status'] ?? '') === 'todo') ? 'selected' : '' ?>>To do</option>
+                        <option value="overdue" <?= (($_GET['due_status'] ?? '') === 'overdue') ? 'selected' : '' ?>>Overdue</option>
+                        <option value="completed" <?= (($_GET['due_status'] ?? '') === 'completed') ? 'selected' : '' ?>>Completed</option>
+                    </select>
                 </form>
             </div>
             <section class="task-board" aria-label="Task inventory board">
