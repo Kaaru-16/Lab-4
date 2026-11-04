@@ -300,6 +300,7 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 
 /* Task form beside the board */
 body:has(.task-panel) { display: grid; grid-template-columns: minmax(0, 1fr) 424px; align-items: start; }
+body:has(.category-panel) { grid-template-columns: minmax(0, 1fr) 468px; }
 .task-panel {
     position: sticky;
     top: 0;
@@ -309,6 +310,38 @@ body:has(.task-panel) { display: grid; grid-template-columns: minmax(0, 1fr) 424
     background: var(--surface);
 }
 .create-panel { min-height: 100%; padding: 24px; border: 2px solid var(--border); }
+.category-panel {
+    height: auto;
+    min-height: 320px;
+    background: var(--surface);
+    color: var(--text);
+}
+.category-panel .create-panel {
+    min-height: 320px;
+    padding: 32px 24px 24px 32px;
+    border-color: var(--border);
+}
+.category-panel .form-heading { margin-bottom: 0; }
+.category-panel .form-heading h2 { font-size: 30px; }
+.create-form.category-form { gap: 20px; margin-top: 34px; }
+.category-form > input:not([type='hidden']) {
+    min-height: 60px;
+    padding: 16px;
+    background: var(--canvas);
+    box-shadow: 3px 3px 0 #0004;
+}
+.category-form .form-actions { gap: 14px; }
+.category-form .form-actions > * {
+    min-height: 66px;
+}
+.category-form .form-actions > :first-child { flex: 1.55; }
+.category-form .form-actions > :last-child { flex: 1; }
+.category-form .secondary-button {
+    border: 2px solid var(--border);
+    background: var(--canvas);
+    color: var(--text);
+    font: 700 14px/1.4 var(--pixel);
+}
 .form-heading, .form-actions { justify-content: space-between; gap: 12px; }
 .form-heading { margin-bottom: 16px; }
 .form-heading h2 { font-size: 27px; }

@@ -1,5 +1,6 @@
 <?php
 session_start();
+// unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks in the session. !!DONT REMOVE THIS PLS!!
 date_default_timezone_set('Asia/Taipei');
 
 function escape($value) {
@@ -25,12 +26,15 @@ function taskStatus($task) {
 }
 
 $_SESSION['new_tasks'] = $_SESSION['new_tasks'] ?? [];
+$_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Personal'];
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
 $fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
 $errors = [];
 $showForm = isset($_GET['new']);
+$showCategoryForm = isset($_GET['new_category']);
+$categoryName = '';
 $editing = false;
 $taskId = null;
 $notice = $_SESSION['notice'] ?? '';
@@ -63,6 +67,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'theme') {
         $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
 
+    // Create Category Function
+    } elseif ($action === 'category_create') {
+        $showCategoryForm = true;
+        $categoryName = posted('category_name');
+        if ($categoryName === '' || textLength($categoryName) > 30) {
+            $errors[] = 'Category name must contain 1 to 30 characters.';
+        }
+        $existingCategories = array_map('strtolower', $_SESSION['categories']);
+        if (in_array(strtolower($categoryName), $existingCategories, true)) {
+            $errors[] = 'That category already exists.';
+        }
+        if (!$errors) {
+            $_SESSION['categories'][] = $categoryName;
+            $_SESSION['notice'] = 'Category created.';
+        }
+
     // Create and Update/Edit Task Function
     } elseif ($action === 'create' || $action === 'update') {
         $editing = $action === 'update';
@@ -85,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Description must contain 1 to 255 characters.';
         }
         if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) $errors[] = 'Choose a valid priority.';
-        if (!in_array($fields['category'], ['Coursework', 'Study', 'Personal'], true)) $errors[] = 'Choose a valid category.';
+        if (!in_array($fields['category'], $_SESSION['categories'], true)) $errors[] = 'Choose a valid category.';
         if (!in_array($fields['status'], ['todo', 'completed'], true)) $errors[] = 'Choose a valid status.';
         if ($fields['due'] !== '') {
             $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
@@ -178,22 +198,16 @@ $total = count($tasks);
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
-                <li>
-                    <span class="category-marker coursework"></span>
-                    Coursework
-                </li>
-                <li>
-                    <span class="category-marker study"></span>
-                    Study
-                </li>
-                <li>
-                    <span class="category-marker personal"></span>
-                    Personal
-                </li>
-                <li><button type="button" class="text-button">
+                <?php foreach ($_SESSION['categories'] as $category): ?>
+                    <li>
+                        <span class="category-marker <?= in_array($category, ['Coursework', 'Study', 'Personal'], true) ? strtolower($category) : '' ?>"></span>
+                        <?= escape($category) ?>
+                    </li>
+                <?php endforeach; ?>
+                <li><a href="index.php?new_category=1" class="text-button">
                     <img src="<?= iconPath($_SESSION['theme'] === 'light' ? 'plus2' : 'plus1') ?>" alt="">
                     <span>New category</span>
-                </button></li>
+                </a></li>
             </ul>
             <div class="appearance">
                 <h2>APPEARANCE</h2>
@@ -306,19 +320,31 @@ $total = count($tasks);
                 <?php endforeach; ?>
             </section>
         </main>
-        <?php if ($showForm): ?>
-            <aside id="create-task" class="task-panel" aria-labelledby="create-title">
+        <?php if ($showForm || $showCategoryForm): ?>
+            <aside id="create-task" class="task-panel <?= $showCategoryForm ? 'category-panel' : '' ?>" aria-labelledby="create-title">
                 <section class="create-panel">
                     <header class="form-heading">
-                        <h2 id="create-title"><?= $editing ? 'Edit task' : 'Create task' ?></h2>
-                        <a href="index.php" class="secondary-button">Close</a>
+                        <h2 id="create-title"><?= $showCategoryForm ? 'Create Category' : ($editing ? 'Edit task' : 'Create task') ?></h2>
+                        <?php if (!$showCategoryForm): ?><a href="index.php" class="secondary-button">Close</a><?php endif; ?>
                     </header>
-                    <p>Add details to plan your next step.</p>
+                    <?php if (!$showCategoryForm): ?><p>Add details to plan your next step.</p><?php endif; ?>
                     <?php if ($errors): ?>
                         <ul class="errors" role="alert">
                             <?php foreach ($errors as $error): ?><li><?= escape($error) ?></li><?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
+                    <?php if ($showCategoryForm): ?>
+                        <form action="index.php" method="POST" class="create-form category-form">
+                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="action" value="category_create">
+                            <label for="category-name">Category name</label>
+                            <input id="category-name" name="category_name" value="<?= escape($categoryName) ?>" placeholder="Enter a category name" required maxlength="30">
+                            <footer class="form-actions">
+                                <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
+                                <a href="index.php" class="secondary-button">Cancel</a>
+                            </footer>
+                        </form>
+                    <?php else: ?>
                     <form action="index.php" method="POST" class="create-form">
                         <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                         <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
@@ -339,7 +365,7 @@ $total = count($tasks);
                         </fieldset>
                         <label for="task-category">Category</label>
                         <select id="task-category" name="category">
-                            <?php foreach (['Coursework', 'Study', 'Personal'] as $category): ?><option <?= $fields['category'] === $category ? 'selected' : '' ?>><?= $category ?></option><?php endforeach; ?>
+                            <?php foreach ($_SESSION['categories'] as $category): ?><option <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option><?php endforeach; ?>
                         </select>
                         <label for="task-status">Status</label>
                         <select id="task-status" name="status">
@@ -351,6 +377,7 @@ $total = count($tasks);
                             <button type="reset" class="secondary-button">Reset</button>
                         </footer>
                     </form>
+                    <?php endif; ?>
                 </section>
             </aside>
         <?php endif; ?>
