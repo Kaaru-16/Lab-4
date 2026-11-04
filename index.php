@@ -275,18 +275,17 @@ $total = count($tasks);
                 </div>
                 <div class="toolbar-rule"></div>
                 <form action="index.php" method="GET" class="sort-filters">
-                    <?php if (isset($_GET['search']) && $_GET['search'] !== ''): ?>
+                    <?php if (!empty($_GET['search'])): ?>
                         <input type="hidden" name="search" value="<?= escape($_GET['search']) ?>">
                     <?php endif; ?>
+                    
                     <select name="priority" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
                         <option value="">All priorities</option>
                         <option value="high" <?= (($_GET['priority'] ?? '') === 'high') ? 'selected' : '' ?>>High priority</option>
                         <option value="medium" <?= (($_GET['priority'] ?? '') === 'medium') ? 'selected' : '' ?>>Medium priority</option>
                         <option value="low" <?= (($_GET['priority'] ?? '') === 'low') ? 'selected' : '' ?>>Low priority</option>
                     </select>
-                    <?php if (isset($_GET['priority']) && $_GET['priority'] !== ''): ?>
-                        <input type="hidden" name="priority" value="<?= escape($_GET['priority']) ?>">
-                    <?php endif; ?>
+
                     <select name="due_status" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
                         <option value="">Due date</option>
                         <option value="todo" <?= (($_GET['due_status'] ?? '') === 'todo') ? 'selected' : '' ?>>To do</option>
