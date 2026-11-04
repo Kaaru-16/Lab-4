@@ -159,10 +159,13 @@ foreach ($_SESSION['new_tasks'] as $taskId => $task) {
     $task['session_id'] = $taskId;
     $tasks[] = $task;
 }
+
 $searchQuery = trim($_GET['search'] ?? '');
 $priorityFilter = $_GET['priority'] ?? '';
 $dueStatusFilter = $_GET['due_status'] ?? '';
+$viewFilter = $_GET['view'] ?? 'all';
 
+// 1. Apply search, priority, and due status filters first
 if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
     $tasks = array_filter($tasks, function($task) use ($searchQuery, $priorityFilter, $dueStatusFilter) {
         $matchesSearch = true;
@@ -184,9 +187,26 @@ if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
         return $matchesSearch && $matchesPriority && $matchesDueStatus;
     });
 }
+
+// 2. Calculate stable counts and totals before view filtering
 $counts = array_fill_keys(array_keys($columns), 0);
-foreach ($tasks as $task) $counts[$task['status']]++;
+foreach ($tasks as $task) {
+    if (isset($counts[$task['status']])) {
+        $counts[$task['status']]++;
+    }
+}
 $total = count($tasks);
+
+// 3. Apply the view tab filter only for rendering the board columns
+if ($viewFilter === 'active') {
+    $tasks = array_filter($tasks, function($task) {
+        return $task['status'] !== 'completed';
+    });
+} elseif ($viewFilter === 'completed') {
+    $tasks = array_filter($tasks, function($task) {
+        return $task['status'] === 'completed';
+    });
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -292,9 +312,23 @@ $total = count($tasks);
             </section>
             <div class="toolbar" aria-label="Task filters">
                 <div class="view-filters">
-                    <button type="button" class="selected">All tasks · <?= $total ?></button>
-                    <button type="button">Active · <?= $total - $counts['completed'] ?></button>
-                    <button type="button">Completed · <?= $counts['completed'] ?></button>
+                    <?php 
+                    // Helper to build query parameters while keeping search/priority intact
+                    function buildViewLink($viewName, $extraParams) {
+                        $params = $extraParams;
+                        if ($viewName !== 'all') {
+                            $params['view'] = $viewName;
+                        } else {
+                            unset($params['view']);
+                        }
+                        return 'index.php' . (!empty($params) ? '?' . http_build_query($params) : '');
+                    }
+                    $currentView = $_GET['view'] ?? 'all';
+                    $baseParams = $_GET;
+                    ?>
+                    <a href="<?= escape(buildViewLink('all', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'all' ? 'selected' : '' ?>">All tasks · <?= $total ?></a>
+                    <a href="<?= escape(buildViewLink('active', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'active' ? 'selected' : '' ?>">Active · <?= $total - $counts['completed'] ?></a>
+                    <a href="<?= escape(buildViewLink('completed', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'completed' ? 'selected' : '' ?>">Completed · <?= $counts['completed'] ?></a>
                 </div>
                 <div class="toolbar-rule"></div>
                 <form action="index.php" method="GET" class="sort-filters">

@@ -195,8 +195,9 @@ button, a, select { cursor: pointer; }
 .appearance-switch span { display: block; width: 45px; height: 28px; background: white; }
 .sidebar-collapsed { --sidebar-width: 190px; }
 .sidebar-collapsed .sidebar { align-items: center; }
-.sidebar-collapsed .sidebar > :not(.control-form):not(.brand) { display: none; }
+.sidebar-collapsed .sidebar > :not(.control-form):not(.brand):not(.appearance) { display: none; }
 .sidebar-collapsed .brand { width: 165px; }
+.sidebar-collapsed .appearance { width: 100%; display: flex; flex-direction: column; align-items: center; }
 
 /* Main content */
 .workspace {
@@ -304,7 +305,22 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
     height: 25px;
 }
 .add-task { padding: 12px; }
-
+.view-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 11px 14px;
+    background: var(--surface);
+    font-size: 17px;
+    font-family: var(--pixel);
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.view-filter-btn.selected {
+    background: var(--green);
+    color: var(--accent);
+    font-weight: 700;
+}
 /* Task form beside the board */
 body:has(.task-panel) { display: grid; grid-template-columns: minmax(0, 1fr) 424px; align-items: start; }
 .task-panel {
