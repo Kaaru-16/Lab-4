@@ -1,5 +1,7 @@
 <?php
 session_start();
+//unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks added in the session. !!DONT REMOVE THIS PLS!!
+//unset($_SESSION['categories']); // for testing in local environment, This will clear all categories added in the session. !!DONT REMOVE THIS PLS!!
 date_default_timezone_set('Asia/Taipei');
 
 function escape($value) {
@@ -30,12 +32,29 @@ $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
 $fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
+$selectedCategory = isset($_GET['category']) && is_string($_GET['category']) && in_array($_GET['category'], $_SESSION['categories'], true)
+    ? $_GET['category']
+    : null;
 $errors = [];
 $showForm = isset($_GET['new']);
+$showCategoryForm = isset($_GET['new_category']);
+$showCategoryDelete = false;
+$deleteCategoryName = '';
+$categoryName = '';
 $editing = false;
 $taskId = null;
 $notice = $_SESSION['notice'] ?? '';
 unset($_SESSION['notice']);
+
+if (isset($_GET['delete_category'])) {
+    $deleteCategoryName = is_string($_GET['delete_category']) ? $_GET['delete_category'] : '';
+    if (in_array($deleteCategoryName, $_SESSION['categories'], true)) {
+        $showCategoryDelete = true;
+    } else {
+        http_response_code(404);
+        $errors[] = 'Category not found.';
+    }
+}
 
 if (isset($_GET['edit'])) {
     $requestedTaskId = is_string($_GET['edit']) && ctype_digit($_GET['edit']) ? (int) $_GET['edit'] : null;
@@ -97,6 +116,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Task not found.';
         }
 
+    // Create Category Function
+    } elseif ($action === 'category_create') {
+        $showCategoryForm = true;
+        $categoryName = posted('category_name');
+        if ($categoryName === '' || textLength($categoryName) > 30) {
+            $errors[] = 'Category name must contain 1 to 30 characters.';
+        }
+        $existingCategories = array_map('strtolower', $_SESSION['categories']);
+        if (in_array(strtolower($categoryName), $existingCategories, true)) {
+            $errors[] = 'That category already exists.';
+        }
+        if (!$errors) {
+            $_SESSION['categories'][] = $categoryName;
+            $_SESSION['notice'] = 'Category created.';
+        }
+
+    // Delete Category Function
+    } elseif ($action === 'category_delete') {
+        $categoryName = posted('category_name');
+        $categoryIndex = array_search($categoryName, $_SESSION['categories'], true);
+        if ($categoryIndex === false) {
+            http_response_code(404);
+            $errors[] = 'Category not found.';
+        } else {
+            unset($_SESSION['categories'][$categoryIndex]);
+            $_SESSION['categories'] = array_values($_SESSION['categories']);
+            foreach ($_SESSION['new_tasks'] as $taskId => $task) {
+                if ($task['category'] === $categoryName) unset($_SESSION['new_tasks'][$taskId]);
+            }
+            $_SESSION['notice'] = 'Category and its tasks deleted.';
+        }
+
     // Create and Update/Edit Task Function
     } elseif ($action === 'create' || $action === 'update') {
         $editing = $action === 'update';
@@ -151,6 +202,7 @@ $samples = [
 $columns = ['todo' => 'To do', 'overdue' => 'Overdue', 'completed' => 'Completed'];
 $tasks = [];
 foreach ($samples as [$name, $description, $due, $priority, $category, $status]) {
+    if (!in_array($category, $_SESSION['categories'], true)) continue;
     $tasks[] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['sample' => true];
 }
 foreach ($_SESSION['new_tasks'] as $taskId => $task) {
@@ -159,7 +211,6 @@ foreach ($_SESSION['new_tasks'] as $taskId => $task) {
     $task['session_id'] = $taskId;
     $tasks[] = $task;
 }
-
 $searchQuery = trim($_GET['search'] ?? '');
 $priorityFilter = $_GET['priority'] ?? '';
 $dueStatusFilter = $_GET['due_status'] ?? '';
@@ -189,6 +240,11 @@ if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
 }
 
 // 2. Calculate stable counts and totals before view filtering
+if ($selectedCategory !== null) {
+    $tasks = array_filter($tasks, static function ($task) use ($selectedCategory) {
+        return $task['category'] === $selectedCategory;
+    });
+}
 $counts = array_fill_keys(array_keys($columns), 0);
 foreach ($tasks as $task) {
     if (isset($counts[$task['status']])) {
@@ -244,29 +300,28 @@ if ($viewFilter === 'active') {
             <hr>
             <h2 class="nav-label">TASK INVENTORY</h2>
             <nav class="navigation" aria-label="Task views">
-                <button type="button" class="selected" aria-current="page">
+                <a href="index.php" class="<?= $selectedCategory === null ? 'selected' : '' ?>" <?= $selectedCategory === null ? 'aria-current="page"' : '' ?>>
                     <img src="<?= iconPath('grid') ?>" alt="">
                     <span>My tasks</span>
-                </button>
+                </a>
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
-                <?php 
-                $markers = ['coursework', 'study', 'personal'];
-                $i = 0;
-                foreach ($_SESSION['categories'] as $cat): 
-                    $markerClass = $markers[$i % count($markers)];
-                    $i++;
-                ?>
+                <?php foreach ($_SESSION['categories'] as $category): ?>
                     <li>
-                        <span class="category-marker <?= $markerClass ?>"></span>
-                        <?= escape($cat) ?>
+                        <a href="index.php?category=<?= rawurlencode($category) ?>" class="<?= $selectedCategory === $category ? 'selected' : '' ?>" <?= $selectedCategory === $category ? 'aria-current="page"' : '' ?>>
+                            <span class="category-marker <?= in_array($category, ['Coursework', 'Study', 'Personal'], true) ? strtolower($category) : '' ?>"></span>
+                            <?= escape($category) ?>
+                        </a>
+                        <a href="index.php?delete_category=<?= rawurlencode($category) ?>" class="category-delete" aria-label="Delete <?= escape($category) ?> category" title="Delete category">
+                            <img src="<?= iconPath('trash') ?>" alt="">
+                        </a>
                     </li>
                 <?php endforeach; ?>
-                <li><button type="button" class="text-button" onclick="openCategoryModal()">
+                <li><a href="index.php?new_category=1" class="text-button">
                     <img src="<?= iconPath($_SESSION['theme'] === 'light' ? 'plus2' : 'plus1') ?>" alt="">
                     <span>New category</span>
-                </button></li>
+                </a></li>
             </ul>
             <div class="appearance">
                 <h2>APPEARANCE</h2>
@@ -419,20 +474,46 @@ if ($viewFilter === 'active') {
                 <?php endforeach; ?>
             </section>
         </main>
-        <?php if ($showForm): ?>
-            <aside id="create-task" class="task-panel" aria-labelledby="create-title">
+        <?php if ($showForm || $showCategoryForm || $showCategoryDelete): ?>
+            <aside id="create-task" class="task-panel <?= $showCategoryForm || $showCategoryDelete ? 'category-panel' : '' ?>" aria-labelledby="create-title">
                 <section class="create-panel">
                     <header class="form-heading">
-                        <h2 id="create-title"><?= $editing ? 'Edit task' : 'Create task' ?></h2>
-                        <a href="index.php" class="secondary-button">Close</a>
+                        <h2 id="create-title"><?= $showCategoryDelete ? 'Delete Category' : ($showCategoryForm ? 'Create Category' : ($editing ? 'Edit task' : 'Create task')) ?></h2>
+                        <?php if (!$showCategoryForm && !$showCategoryDelete): ?><a href="index.php" class="secondary-button">Close</a><?php endif; ?>
                     </header>
-                    <p>Add details to plan your next step.</p>
+                    <?php if ($showCategoryDelete): ?>
+                        <p>Delete &quot;<?= escape($deleteCategoryName) ?>&quot; and all tasks in this category? This cannot be undone.</p>
+                    <?php elseif (!$showCategoryForm): ?>
+                        <p>Add details to plan your next step.</p>
+                    <?php endif; ?>
                     <?php if ($errors): ?>
                         <ul class="errors" role="alert">
                             <?php foreach ($errors as $error): ?><li><?= escape($error) ?></li><?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
-                    <form action="index.php<?= $editing && $taskId !== null ? '?edit=' . (int) $taskId : '' ?>" method="POST" class="create-form">
+                    <?php if ($showCategoryDelete): ?>
+                        <form action="index.php" method="POST" class="create-form category-form">
+                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="action" value="category_delete">
+                            <input type="hidden" name="category_name" value="<?= escape($deleteCategoryName) ?>">
+                            <footer class="form-actions">
+                                <button class="primary-button delete-button">Delete Category</button>
+                                <a href="index.php" class="secondary-button">Cancel</a>
+                            </footer>
+                        </form>
+                    <?php elseif ($showCategoryForm): ?>
+                        <form action="index.php" method="POST" class="create-form category-form">
+                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="action" value="category_create">
+                            <label for="category-name">Category name</label>
+                            <input id="category-name" name="category_name" value="<?= escape($categoryName) ?>" placeholder="Enter a category name" required maxlength="30">
+                            <footer class="form-actions">
+                                <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
+                                <a href="index.php" class="secondary-button">Cancel</a>
+                            </footer>
+                        </form>
+                    <?php else: ?>
+                    <form action="index.php" method="POST" class="create-form">
                         <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                         <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
                         <?php if ($editing && $taskId !== null): ?>
@@ -468,6 +549,7 @@ if ($viewFilter === 'active') {
                             <button type="reset" class="secondary-button">Reset</button>
                         </footer>
                     </form>
+                    <?php endif; ?>
                 </section>
             </aside>
         <?php endif; ?>
