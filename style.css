@@ -391,15 +391,17 @@ body:has(.category-panel) { grid-template-columns: minmax(0, 1fr) 383px; }
 .priority-choices { display: flex; gap: 10px; margin: 0; padding: 0; border: 0; }
 .priority-choices legend { margin-bottom: 10px; }
 .priority-choices label {
+    --priority-surface: var(--mint-surface);
     position: relative;
     padding: 7px;
-    background: var(--mint-surface);
+    background: var(--canvas);
     color: var(--success-text);
     font: 700 12px/1.4 var(--pixel);
     cursor: pointer;
 }
-.priority-choices label:has(input[value='high']) { background: var(--high-surface); color: var(--high-text); }
-.priority-choices label:has(input[value='medium']) { background: var(--gold-surface); color: var(--accent-text); }
+.priority-choices label:has(input[value='high']) { --priority-surface: var(--high-surface); color: var(--high-text); }
+.priority-choices label:has(input[value='medium']) { --priority-surface: var(--gold-surface); color: var(--accent-text); }
+.priority-choices label:has(:checked) { background: var(--priority-surface); }
 .priority-choices input {
     position: absolute;
     width: 1px;
