@@ -1,7 +1,7 @@
 <?php
 session_start();
-//unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks added in the session. !!DONT REMOVE THIS PLS!!
-//unset($_SESSION['categories']); // for testing in local environment, This will clear all categories added in the session. !!DONT REMOVE THIS PLS!!
+//unset($_SESSION['new_tasks']); 
+//unset($_SESSION['categories']); 
 date_default_timezone_set('Asia/Taipei');
 $minimumDue = date('Y-m-d\TH:i');
 
