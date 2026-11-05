@@ -3,6 +3,7 @@ session_start();
 //unset($_SESSION['new_tasks']); // for testing in local environment, This will clear all tasks added in the session. !!DONT REMOVE THIS PLS!!
 //unset($_SESSION['categories']); // for testing in local environment, This will clear all categories added in the session. !!DONT REMOVE THIS PLS!!
 date_default_timezone_set('Asia/Taipei');
+$minimumDue = date('Y-m-d\TH:i');
 
 function escape($value) {
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -21,6 +22,12 @@ function textLength($value) {
     return $length === false ? PHP_INT_MAX : $length;
 }
 
+function buildViewLink($view, $params) {
+    if ($view === 'all') unset($params['view']);
+    else $params['view'] = $view;
+    return 'index.php' . ($params ? '?' . http_build_query($params) : '');
+}
+
 function taskStatus($task) {
     if ($task['status'] === 'completed') return 'completed';
     return $task['due'] !== '' && strtotime($task['due']) < time() ? 'overdue' : 'todo';
@@ -31,13 +38,15 @@ $_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Pe
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
-$fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
+$fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo', 'reminder' => ''];
 $selectedCategory = isset($_GET['category']) && is_string($_GET['category']) && in_array($_GET['category'], $_SESSION['categories'], true)
     ? $_GET['category']
     : null;
 $errors = [];
 $showForm = isset($_GET['new']);
 $showCategoryForm = isset($_GET['new_category']);
+$pageParams = array_filter($_GET, 'is_string');
+$pageUrl = 'index.php' . ($pageParams ? '?' . http_build_query($pageParams) : '');
 $showCategoryDelete = false;
 $deleteCategoryName = '';
 $categoryName = '';
@@ -75,37 +84,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(403);
         $errors[] = 'Your form expired. Reload the page and try again.';
 
-    // Toggle Sidebar Function
     } elseif ($action === 'menu') {
         $_SESSION['collapsed'] = !$_SESSION['collapsed'];
-    // Toggle Task Completion Function
     } elseif ($action === 'toggle_complete') {
         $postedTaskId = posted('task_id');
         if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
             $taskId = (int) $postedTaskId;
             $currentStatus = $_SESSION['new_tasks'][$taskId]['status'] ?? 'todo';
-            // Toggle between completed and todo
             $_SESSION['new_tasks'][$taskId]['status'] = ($currentStatus === 'completed') ? 'todo' : 'completed';
             $_SESSION['notice'] = 'Task status updated.';
         } else {
             http_response_code(404);
             $errors[] = 'Task not found.';
         }
-    // Toggle Theme Function
     } elseif ($action === 'theme') {
         $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
-    } elseif ($action === 'create_category') {
-        $catName = trim(posted('category_name'));
-        if ($catName !== '' && textLength($catName) <= 50) {
-            if (!in_array($catName, $_SESSION['categories'], true)) {
-                $_SESSION['categories'][] = $catName;
-                $_SESSION['notice'] = 'Category created.';
-            }
-        } else {
-            $errors[] = 'Invalid category name.';
-        }
-
-    // Delete Task Function
     } elseif ($action === 'delete') {
         $postedTaskId = posted('task_id');
         if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
@@ -116,7 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Task not found.';
         }
 
-    // Create Category Function
     } elseif ($action === 'category_create') {
         $showCategoryForm = true;
         $categoryName = posted('category_name');
@@ -132,7 +124,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['notice'] = 'Category created.';
         }
 
-    // Delete Category Function
     } elseif ($action === 'category_delete') {
         $categoryName = posted('category_name');
         $categoryIndex = array_search($categoryName, $_SESSION['categories'], true);
@@ -142,13 +133,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             unset($_SESSION['categories'][$categoryIndex]);
             $_SESSION['categories'] = array_values($_SESSION['categories']);
-            foreach ($_SESSION['new_tasks'] as $taskId => $task) {
-                if ($task['category'] === $categoryName) unset($_SESSION['new_tasks'][$taskId]);
+            foreach ($_SESSION['new_tasks'] as $id => $task) {
+                if ($task['category'] === $categoryName) unset($_SESSION['new_tasks'][$id]);
             }
             $_SESSION['notice'] = 'Category and its tasks deleted.';
         }
 
-    // Create and Update/Edit Task Function
     } elseif ($action === 'create' || $action === 'update') {
         $editing = $action === 'update';
         $showForm = true;
@@ -163,6 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         foreach ($fields as $key => $default) $fields[$key] = posted($key, $default);
+        $fields['reminder'] = posted('reminder') === '1' ? '1' : '';
         if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
             $errors[] = 'Task name must contain 3 to 100 characters.';
         }
@@ -174,7 +165,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($fields['status'], ['todo', 'completed'], true)) $errors[] = 'Choose a valid status.';
         if ($fields['due'] !== '') {
             $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
-            if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due']) $errors[] = 'Enter a valid due date and time.';
+            if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due']) {
+                $errors[] = 'Enter a valid due date and time.';
+            } elseif ($fields['due'] < $minimumDue) {
+                $errors[] = 'Choose a current or future due date and time.';
+            }
         }
         if (!$errors) {
             if ($editing) {
@@ -190,79 +185,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Unknown form action.';
     }
     if (!$errors) {
-        header('Location: index.php', true, 303);
+        if ($action === 'menu' && ($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json') {
+            header('Content-Type: application/json');
+            echo json_encode(['collapsed' => $_SESSION['collapsed']]);
+            exit;
+        }
+        header('Location: ' . (in_array($action, ['menu', 'theme'], true) ? $pageUrl : 'index.php'), true, 303);
         exit;
     }
     if (http_response_code() === 200) http_response_code(422);
 }
 
-$samples = [
-    /*['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'Today, 10:00 AM', 'high', 'Coursework', 'todo'], SAMPLE DATA FORMAT PAG MAGLALAGAY NG DUMMY DATA*/
-];
 $columns = ['todo' => 'To do', 'overdue' => 'Overdue', 'completed' => 'Completed'];
 $tasks = [];
-foreach ($samples as [$name, $description, $due, $priority, $category, $status]) {
-    if (!in_array($category, $_SESSION['categories'], true)) continue;
-    $tasks[] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['sample' => true];
-}
-foreach ($_SESSION['new_tasks'] as $taskId => $task) {
+foreach ($_SESSION['new_tasks'] as $id => $task) {
     $task['status'] = taskStatus($task);
     $task['due'] = $task['due'] !== '' ? date('M j, Y, g:i A', strtotime($task['due'])) : 'No due date';
-    $task['session_id'] = $taskId;
+    $task['session_id'] = $id;
     $tasks[] = $task;
 }
-$searchQuery = trim($_GET['search'] ?? '');
-$priorityFilter = $_GET['priority'] ?? '';
-$dueStatusFilter = $_GET['due_status'] ?? '';
-$viewFilter = $_GET['view'] ?? 'all';
-
-// 1. Apply search, priority, and due status filters first
-if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
-    $tasks = array_filter($tasks, function($task) use ($searchQuery, $priorityFilter, $dueStatusFilter) {
-        $matchesSearch = true;
-        $matchesPriority = true;
-        $matchesDueStatus = true;
-
-        if ($searchQuery !== '') {
-            $matchesSearch = stripos($task['name'], $searchQuery) !== false || stripos($task['description'], $searchQuery) !== false;
-        }
-
-        if ($priorityFilter !== '') {
-            $matchesPriority = strtolower($task['priority']) === strtolower($priorityFilter);
-        }
-
-        if ($dueStatusFilter !== '') {
-            $matchesDueStatus = strtolower($task['status']) === strtolower($dueStatusFilter);
-        }
-
-        return $matchesSearch && $matchesPriority && $matchesDueStatus;
-    });
-}
-
-// 2. Calculate stable counts and totals before view filtering
-if ($selectedCategory !== null) {
-    $tasks = array_filter($tasks, static function ($task) use ($selectedCategory) {
-        return $task['category'] === $selectedCategory;
-    });
-}
+$searchQuery = trim($pageParams['search'] ?? '');
+$priorityFilter = $pageParams['priority'] ?? '';
+$dueStatusFilter = $pageParams['due_status'] ?? '';
+$viewFilter = $pageParams['view'] ?? 'all';
+$tasks = array_filter($tasks, static function ($task) use ($searchQuery, $priorityFilter, $dueStatusFilter, $selectedCategory) {
+    return ($searchQuery === '' || stripos($task['name'], $searchQuery) !== false || stripos($task['description'], $searchQuery) !== false)
+        && ($priorityFilter === '' || strcasecmp($task['priority'], $priorityFilter) === 0)
+        && ($dueStatusFilter === '' || strcasecmp($task['status'], $dueStatusFilter) === 0)
+        && ($selectedCategory === null || $task['category'] === $selectedCategory);
+});
+// Count before selecting a view so the tab totals stay stable.
 $counts = array_fill_keys(array_keys($columns), 0);
-foreach ($tasks as $task) {
-    if (isset($counts[$task['status']])) {
-        $counts[$task['status']]++;
-    }
-}
+foreach ($tasks as $task) $counts[$task['status']]++;
 $total = count($tasks);
+$tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
+    return ($viewFilter !== 'active' || $task['status'] !== 'completed')
+        && ($viewFilter !== 'completed' || $task['status'] === 'completed');
+});
 
-// 3. Apply the view tab filter only for rendering the board columns
-if ($viewFilter === 'active') {
-    $tasks = array_filter($tasks, function($task) {
-        return $task['status'] !== 'completed';
-    });
-} elseif ($viewFilter === 'completed') {
-    $tasks = array_filter($tasks, function($task) {
-        return $task['status'] === 'completed';
-    });
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -275,7 +235,7 @@ if ($viewFilter === 'active') {
     </head>
     <body class="<?= $_SESSION['collapsed'] ? 'sidebar-collapsed' : '' ?> <?= $_SESSION['theme'] === 'light' ? 'light-theme' : '' ?>">
         <aside class="sidebar" aria-label="Workspace sidebar">
-            <form action="index.php" method="POST" class="control-form">
+            <form action="<?= escape($pageUrl) ?>" method="POST" class="control-form">
                 <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                 <button class="menu-button" name="action" value="menu" aria-label="Toggle sidebar" aria-expanded="<?= $_SESSION['collapsed'] ? 'false' : 'true' ?>">
                     <img src="<?= iconPath('menu') ?>" alt="">
@@ -292,10 +252,10 @@ if ($viewFilter === 'active') {
                         <img src="image/dark/image1.png" alt="John Carl Lasala's avatar">
                     </div>
                 </div>
-                <div>
+                <figcaption>
                     <p>John Carl Lasala</p>
                     <small>Personal workspace</small>
-                </div>
+                </figcaption>
             </figure>
             <hr>
             <h2 class="nav-label">TASK INVENTORY</h2>
@@ -325,23 +285,21 @@ if ($viewFilter === 'active') {
             </ul>
             <div class="appearance">
                 <h2>APPEARANCE</h2>
-                <div class="switch-wrap">
-                    <form action="index.php" method="POST" class="control-form">
-                        <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                        <button class="appearance-switch" name="action" value="theme" aria-label="<?= $_SESSION['theme'] === 'dark' ? 'Use light theme' : 'Use dark theme' ?>" aria-pressed="<?= $_SESSION['theme'] === 'light' ? 'true' : 'false' ?>"><span></span></button>
-                    </form>
-                </div>
+                <form action="<?= escape($pageUrl) ?>" method="POST" class="control-form switch-wrap">
+                    <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                    <button class="appearance-switch" name="action" value="theme" aria-label="<?= $_SESSION['theme'] === 'dark' ? 'Use light theme' : 'Use dark theme' ?>" aria-pressed="<?= $_SESSION['theme'] === 'light' ? 'true' : 'false' ?>"><span></span></button>
+                </form>
             </div>
         </aside>
         <main class="workspace">
             <header class="page-header">
                 <div class="heading">
-                    <h1>Task Inventory</h1>
-                    <p><?= date('l, j F Y') ?></p>
+                    <h1>Task inventory</h1>
+                    <time datetime="<?= date('Y-m-d') ?>"><?= date('l, j F Y') ?></time>
                 </div>
-                <form action="index.php" method="GET" class="search bevel" style="margin:0; background:var(--surface);">
+                <form action="index.php" method="GET" class="search">
                     <img src="<?= iconPath('search') ?>" alt="">
-                    <input type="text" name="search" value="<?= escape($_GET['search'] ?? '') ?>" placeholder="Search task names or descriptions" style="border:0; background:transparent; width:100%; outline:none;">
+                    <input type="text" name="search" value="<?= escape($searchQuery) ?>" placeholder="Search task names or descriptions" aria-label="Search tasks">
                 </form>
                 <div class="header-rule"></div>
                 <button type="button" class="notification-button" aria-label="Notifications">
@@ -367,43 +325,36 @@ if ($viewFilter === 'active') {
             </section>
             <div class="toolbar" aria-label="Task filters">
                 <div class="view-filters">
-                    <?php 
-                    // Helper to build query parameters while keeping search/priority intact
-                    function buildViewLink($viewName, $extraParams) {
-                        $params = $extraParams;
-                        if ($viewName !== 'all') {
-                            $params['view'] = $viewName;
-                        } else {
-                            unset($params['view']);
-                        }
-                        return 'index.php' . (!empty($params) ? '?' . http_build_query($params) : '');
-                    }
-                    $currentView = $_GET['view'] ?? 'all';
-                    $baseParams = $_GET;
-                    ?>
-                    <a href="<?= escape(buildViewLink('all', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'all' ? 'selected' : '' ?>">All tasks · <?= $total ?></a>
-                    <a href="<?= escape(buildViewLink('active', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'active' ? 'selected' : '' ?>">Active · <?= $total - $counts['completed'] ?></a>
-                    <a href="<?= escape(buildViewLink('completed', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'completed' ? 'selected' : '' ?>">Completed · <?= $counts['completed'] ?></a>
+                    <a href="<?= escape(buildViewLink('all', $pageParams)) ?>" class="view-filter-btn <?= $viewFilter === 'all' ? 'selected' : '' ?>">All tasks · <?= $total ?></a>
+                    <a href="<?= escape(buildViewLink('active', $pageParams)) ?>" class="view-filter-btn <?= $viewFilter === 'active' ? 'selected' : '' ?>">Active · <?= $total - $counts['completed'] ?></a>
+                    <a href="<?= escape(buildViewLink('completed', $pageParams)) ?>" class="view-filter-btn <?= $viewFilter === 'completed' ? 'selected' : '' ?>">Completed · <?= $counts['completed'] ?></a>
                 </div>
                 <div class="toolbar-rule"></div>
                 <form action="index.php" method="GET" class="sort-filters">
-                    <?php if (!empty($_GET['search'])): ?>
-                        <input type="hidden" name="search" value="<?= escape($_GET['search']) ?>">
+                    <?php if ($searchQuery !== ''): ?>
+                        <input type="hidden" name="search" value="<?= escape($searchQuery) ?>">
                     <?php endif; ?>
                     
-                    <select name="priority" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
-                        <option value="">All priorities</option>
-                        <option value="high" <?= (($_GET['priority'] ?? '') === 'high') ? 'selected' : '' ?>>High priority</option>
-                        <option value="medium" <?= (($_GET['priority'] ?? '') === 'medium') ? 'selected' : '' ?>>Medium priority</option>
-                        <option value="low" <?= (($_GET['priority'] ?? '') === 'low') ? 'selected' : '' ?>>Low priority</option>
-                    </select>
+                    <label class="select-filter">
+                        <img src="<?= iconPath('filter') ?>" alt="">
+                        <select aria-label="Priority filter" name="priority">
+                            <option value="">All priorities</option>
+                            <option value="high" <?= ($priorityFilter === 'high') ? 'selected' : '' ?>>High priority</option>
+                            <option value="medium" <?= ($priorityFilter === 'medium') ? 'selected' : '' ?>>Medium priority</option>
+                            <option value="low" <?= ($priorityFilter === 'low') ? 'selected' : '' ?>>Low priority</option>
+                        </select>
+                        <img src="<?= iconPath('chevron') ?>" alt="">
+                    </label>
 
-                    <select name="due_status" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
-                        <option value="">Due date</option>
-                        <option value="todo" <?= (($_GET['due_status'] ?? '') === 'todo') ? 'selected' : '' ?>>To do</option>
-                        <option value="overdue" <?= (($_GET['due_status'] ?? '') === 'overdue') ? 'selected' : '' ?>>Overdue</option>
-                        <option value="completed" <?= (($_GET['due_status'] ?? '') === 'completed') ? 'selected' : '' ?>>Completed</option>
-                    </select>
+                    <label class="select-filter">
+                        <select aria-label="Due date filter" name="due_status">
+                            <option value="">Due date</option>
+                            <option value="todo" <?= ($dueStatusFilter === 'todo') ? 'selected' : '' ?>>To do</option>
+                            <option value="overdue" <?= ($dueStatusFilter === 'overdue') ? 'selected' : '' ?>>Overdue</option>
+                            <option value="completed" <?= ($dueStatusFilter === 'completed') ? 'selected' : '' ?>>Completed</option>
+                        </select>
+                        <img src="<?= iconPath('chevron') ?>" alt="">
+                    </label>
                 </form>
             </div>
             <section class="task-board" aria-label="Task inventory board">
@@ -421,54 +372,36 @@ if ($viewFilter === 'active') {
                                     <span class="priority <?= $status === 'completed' ? 'low' : escape($task['priority']) ?>"><?= $status === 'completed' ? 'Completed' : ucfirst(escape($task['priority'])) . ' priority' ?></span>
                                     <span><?= escape($task['category']) ?></span>
                                 </header>
-                                <h3 class="task-heading">
-                                    <?php if (!empty($task['sample'])): ?>
-                                        <span class="task-checkbox" aria-hidden="true">
+                                <header class="task-heading">
+                                    <form id="toggle-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="completion-form">
+                                        <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                        <input type="hidden" name="action" value="toggle_complete">
+                                        <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
+                                        <label class="task-checkbox">
+                                            <input type="checkbox" aria-label="Toggle <?= escape($task['name']) ?> completion" <?= $status === 'completed' ? 'checked' : '' ?>>
                                             <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <form id="toggle-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" style="display:inline; margin:0;">
-                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                                            <input type="hidden" name="action" value="toggle_complete">
-                                            <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                            <label class="task-checkbox" style="cursor:pointer;" aria-label="Toggle task completion">
-                                                <input type="checkbox" <?= $status === 'completed' ? 'checked' : '' ?> onchange="document.getElementById('toggle-form-<?= (int) $task['session_id'] ?>').submit();" style="display:none;">
-                                                <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
-                                            </label>
-                                        </form>
-                                    <?php endif; ?>
-                                    <span><?= escape($task['name']) ?></span>
-                                </h3>
+                                        </label>
+                                    </form>
+                                    <h3><?= escape($task['name']) ?></h3>
+                                </header>
                                 <p><?= escape($task['description']) ?></p>
                                 <footer class="card-footer">
                                     <img src="<?= iconPath('clock') ?>" alt="">
                                     <span><?= escape($task['due']) ?></span>
-                                    <?php if (!empty($task['sample'])): ?>
-                                        <div class="card-actions">
-                                            <button type="button" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
-                                            <button type="button" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
-                                        </div>
-                                    <?php else: ?>
-                                        <div class="card-actions">
-                                            <form action="index.php" method="GET" class="control-form">
-                                                <input type="hidden" name="edit" value="<?= (int) $task['session_id'] ?>">
-                                                <button type="submit" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
-                                            </form>
-                                            <form id="delete-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="control-form">
-                                                <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                                <button type="button" onclick="openDeleteModal(<?= (int) $task['session_id'] ?>)" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
-                                            </form>
-                                        </div>
-                                    <?php endif; ?>
+                                    <div class="card-actions">
+                                        <a href="index.php?edit=<?= (int) $task['session_id'] ?>" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></a>
+                                        <form id="delete-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="control-form">
+                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
+                                            <button type="button" data-delete-task="<?= (int) $task['session_id'] ?>" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
+                                        </form>
+                                    </div>
                                 </footer>
                             </article>
                         <?php endforeach; ?>
                         <?php if ($status === 'todo'): ?>
-                            <div class="add-task">
-                                <a href="index.php?new=1" class="text-button"><img src="<?= iconPath('plus1') ?>" alt="">Add task</a>
-                            </div>
+                            <a href="index.php?new=1" class="text-button add-task"><img src="<?= iconPath('plus1') ?>" alt="">Add task</a>
                         <?php endif; ?>
                     </section>
                 <?php endforeach; ?>
@@ -513,100 +446,126 @@ if ($viewFilter === 'active') {
                             </footer>
                         </form>
                     <?php else: ?>
-                    <form action="index.php" method="POST" class="create-form">
-                        <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                        <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
-                        <?php if ($editing && $taskId !== null): ?>
-                            <input type="hidden" name="task_id" value="<?= (int) $taskId ?>">
-                        <?php endif; ?>
-                        <label for="task-name">Task name *</label>
-                        <input id="task-name" name="name" value="<?= escape($fields['name']) ?>" placeholder="Enter a task name" aria-describedby="name-help" required minlength="3" maxlength="100" autofocus>
-                        <small id="name-help">At least 3 characters, up to 100.</small>
-                        <label for="task-description">Description *</label>
-                        <textarea id="task-description" name="description" aria-describedby="description-help" required maxlength="255" rows="3" placeholder="Describe what needs to get done."><?= escape($fields['description']) ?></textarea>
-                        <small id="description-help">Up to 255 characters.</small>
-                        <label for="task-due">Due date &amp; time</label>
-                        <input type="datetime-local" id="task-due" name="due" value="<?= escape($fields['due']) ?>">
-                        <fieldset class="priority-choices">
-                            <legend>Priority</legend>
-                            <?php foreach (['high' => 'High', 'medium' => 'Medium', 'low' => 'Low'] as $value => $label): ?>
-                                <label><input type="radio" name="priority" value="<?= $value ?>" <?= $fields['priority'] === $value ? 'checked' : '' ?>><?= $label ?></label>
-                            <?php endforeach; ?>
-                        </fieldset>
-                        <label for="task-category">Category</label>
-                        <select id="task-category" name="category">
-                            <?php foreach ($_SESSION['categories'] as $category): ?>
-                                <option value="<?= escape($category) ?>" <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <label for="task-status">Status</label>
-                        <select id="task-status" name="status">
-                            <option value="todo" <?= $fields['status'] === 'todo' ? 'selected' : '' ?>>To do</option>
-                            <option value="completed" <?= $fields['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
-                        </select>
-                        <footer class="form-actions">
-                            <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt=""><?= $editing ? 'Update task' : 'Create task' ?></button>
-                            <button type="reset" class="secondary-button">Reset</button>
-                        </footer>
-                    </form>
+                        <form action="index.php" method="POST" class="create-form">
+                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
+                            <?php if ($editing && $taskId !== null): ?>
+                                <input type="hidden" name="task_id" value="<?= (int) $taskId ?>">
+                            <?php endif; ?>
+                            <label for="task-name">Task name *</label>
+                            <input id="task-name" name="name" value="<?= escape($fields['name']) ?>" placeholder="Enter a task name" aria-describedby="name-help" required minlength="3" maxlength="100" autofocus>
+                            <small id="name-help">At least 3 characters.</small>
+                            <label for="task-description">Description *</label>
+                            <textarea id="task-description" name="description" aria-describedby="description-help" required maxlength="255" rows="3" placeholder="Describe what needs to get done."><?= escape($fields['description']) ?></textarea>
+                            <small id="description-help"><?= textLength($fields['description']) ?> / 255 characters</small>
+                            <label for="task-due">Due date &amp; time</label>
+                            <input type="datetime-local" id="task-due" name="due" min="<?= escape($minimumDue) ?>" value="<?= escape($fields['due']) ?>" aria-describedby="due-help">
+                            <small id="due-help">Choose today or a future date and time.</small>
+                            <fieldset class="priority-choices">
+                                <legend>Priority</legend>
+                                <?php foreach (['high' => 'High', 'medium' => 'Medium', 'low' => 'Low'] as $value => $label): ?>
+                                    <label><input type="radio" name="priority" value="<?= $value ?>" <?= $fields['priority'] === $value ? 'checked' : '' ?>><?= $label ?></label>
+                                <?php endforeach; ?>
+                            </fieldset>
+                            <label for="task-category">Category</label>
+                            <select id="task-category" name="category">
+                                <?php foreach ($_SESSION['categories'] as $category): ?>
+                                    <option value="<?= escape($category) ?>" <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <label for="task-status">Status</label>
+                            <select id="task-status" name="status">
+                                <option value="todo" <?= $fields['status'] === 'todo' ? 'selected' : '' ?>>To do</option>
+                                <option value="completed" <?= $fields['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
+                            </select>
+                            <label class="reminder"><input type="checkbox" name="reminder" value="1" <?= !empty($fields['reminder']) ? 'checked' : '' ?>>Remind me 15 minutes before</label>
+                            <footer class="form-actions">
+                                <button class="primary-button"><span class="form-icon"><img src="<?= $editing ? 'image/dark/icon-form-edit.svg' : 'image/dark/icon-form-plus.svg' ?>" alt=""></span><?= $editing ? 'Update task' : 'Create task' ?></button>
+                                <button type="reset" class="secondary-button">Reset</button>
+                            </footer>
+                        </form>
                     <?php endif; ?>
                 </section>
             </aside>
         <?php endif; ?>
 
-        <!-- Custom Centered Delete Confirmation Modal -->
-        <div id="delete-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
-            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:400px; max-width:90%; display:grid; gap:20px;">
-                <h2 style="font-size:32px; color:var(--text); font-family:var(--pixel);">Delete</h2>
-                <p style="color:var(--muted); font-size:18px;">Are you sure you want to delete this task?</p>
-                <div style="display:flex; gap:10px;">
-                    <button type="button" id="confirm-delete-btn" style="flex:1; padding:12px; border:2px solid #263024; background:#b54730; box-shadow:var(--bevel); color:#f0f1e8; font:700 18px/1.4 var(--pixel); cursor:pointer;">Delete task</button>
-                    <button type="button" onclick="closeDeleteModal()" style="flex:1; padding:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font:700 18px/1.4 var(--pixel); cursor:pointer;">Cancel</button>
+        <div id="delete-modal-overlay" class="modal-overlay" hidden>
+            <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+                <h2 id="delete-title">Delete</h2>
+                <p>Are you sure you want to delete this task?</p>
+                <div class="form-actions">
+                    <button type="button" id="confirm-delete-btn" class="primary-button delete-button"><img src="image/dark/icon-delete.svg" alt="">Delete task</button>
+                    <button type="button" id="cancel-delete-btn" class="secondary-button">Cancel</button>
                 </div>
-            </div>
-        </div>
-
-        <div id="category-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
-            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:390px; max-width:90%; display:grid; gap:20px;">
-                <h2 style="font-size:24px; color:var(--text); font-family:var(--pixel);">Create Category</h2>
-                <form action="index.php" method="POST" style="display:grid; gap:16px;">
-                    <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                    <input type="hidden" name="action" value="create_category">
-                    <label for="modal-cat-name" style="font:700 18px/1.4 var(--pixel); color:var(--text);">Category name</label>
-                    <input id="modal-cat-name" name="category_name" placeholder="Enter a category name" required maxlength="50" style="width:100%; padding:14px; border:2px solid var(--border); background:var(--canvas); color:var(--text); font:inherit; box-shadow:var(--bevel);">
-                    <div style="display:flex; gap:10px; margin-top:4px;">
-                        <button type="submit" class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
-                        <button type="button" onclick="closeCategoryModal()" class="secondary-button" style="color: #000;">Cancel</button>
-                    </div>
-                </form>
-            </div>
+            </section>
         </div>
 
         <script>
-            // Delete Modal Script
-            let activeDeleteTaskId = null;
-            function openDeleteModal(taskId) {
-                activeDeleteTaskId = taskId;
-                document.getElementById('delete-modal-overlay').style.display = 'grid';
-            }
-            function closeDeleteModal() {
-                activeDeleteTaskId = null;
-                document.getElementById('delete-modal-overlay').style.display = 'none';
-            }
-            document.getElementById('confirm-delete-btn').addEventListener('click', function() {
-                if (activeDeleteTaskId !== null) {
-                    document.getElementById('delete-form-' + activeDeleteTaskId).submit();
+            const menuButton = document.querySelector('.menu-button');
+            menuButton.form.addEventListener('submit', async event => {
+                event.preventDefault();
+                menuButton.disabled = true;
+                const data = new FormData(menuButton.form);
+                data.set('action', 'menu');
+                try {
+                    const response = await fetch(menuButton.form.action, {
+                        method: 'POST', body: data, headers: {'Accept': 'application/json'}
+                    });
+                    if (!response.ok) throw new Error('Menu update failed');
+                    const state = await response.json();
+                    document.body.classList.toggle('sidebar-collapsed', state.collapsed);
+                    menuButton.setAttribute('aria-expanded', String(!state.collapsed));
+                    menuButton.removeAttribute('title');
+                } catch {
+                    menuButton.title = 'Unable to update the menu. Please try again.';
+                } finally {
+                    menuButton.disabled = false;
                 }
             });
 
-            // Category Modal Script
-            function openCategoryModal() {
-                document.getElementById('category-modal-overlay').style.display = 'grid';
-                document.getElementById('modal-cat-name').focus();
+            const dueInput = document.getElementById('task-due');
+            if (dueInput) {
+                function refreshDueMinimum() {
+                    const parts = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
+                        day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+                    }).formatToParts(new Date());
+                    const time = Object.fromEntries(parts.map(part => [part.type, part.value]));
+                    dueInput.min = `${time.year}-${time.month}-${time.day}T${time.hour}:${time.minute}`;
+                }
+                dueInput.addEventListener('focus', refreshDueMinimum);
+                dueInput.addEventListener('input', refreshDueMinimum);
+                dueInput.addEventListener('change', () => {
+                    refreshDueMinimum();
+                    if (dueInput.value && dueInput.validity.valid && document.activeElement === dueInput) {
+                        document.querySelector('.priority-choices input:checked').focus({preventScroll: true});
+                    }
+                });
+                dueInput.form.addEventListener('reset', () => setTimeout(refreshDueMinimum, 0));
+                refreshDueMinimum();
             }
-            function closeCategoryModal() {
-                document.getElementById('category-modal-overlay').style.display = 'none';
-            }
+
+            document.querySelectorAll('.sort-filters select, .completion-form input[type="checkbox"]').forEach(input => {
+                input.addEventListener('change', () => input.form.requestSubmit());
+            });
+
+            const deleteOverlay = document.getElementById('delete-modal-overlay');
+            let activeDeleteTaskId = null;
+            document.querySelectorAll('[data-delete-task]').forEach(button => {
+                button.addEventListener('click', () => {
+                    activeDeleteTaskId = button.dataset.deleteTask;
+                    deleteOverlay.hidden = false;
+                });
+            });
+            document.getElementById('cancel-delete-btn').addEventListener('click', () => {
+                activeDeleteTaskId = null;
+                deleteOverlay.hidden = true;
+            });
+            document.getElementById('confirm-delete-btn').addEventListener('click', () => {
+                if (activeDeleteTaskId !== null) {
+                    document.getElementById('delete-form-' + activeDeleteTaskId).requestSubmit();
+                }
+            });
         </script>
     </body>
 </html>
