@@ -78,6 +78,8 @@ button, a, select { cursor: pointer; }
     background: var(--surface);
     box-shadow: none;
 }
+.delete-button { border-color: #7d2020; background: #b83232; }
+.delete-button:hover { background: #982828; }
 .text-button, .profile, .navigation button, .navigation a {
     display: flex;
     align-items: center;
@@ -168,12 +170,19 @@ button, a, select { cursor: pointer; }
     text-align: left;
     font: 700 15px/1.4 var(--pixel);
 }
-.categories { padding: 0; list-style: none; }
+.categories { padding: 0; margin-right: -16px; list-style: none; }
+.categories li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .categories li > a {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex: 1;
+    min-width: 0;
 }
+
+.category-delete { display: grid; place-items: center; width: 24px; height: 24px; margin-left: 8px; opacity: .65; }
+.category-delete:hover { opacity: 1; }
+.category-delete img { width: 14px; height: 14px; }
 .category-marker, .status-marker {
     width: 8px;
     height: 8px;
