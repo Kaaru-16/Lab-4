@@ -1,23 +1,5 @@
-const menuButton = document.querySelector('.menu-button');
-menuButton.form.addEventListener('submit', async event => {
-    event.preventDefault();
-    menuButton.disabled = true;
-    const data = new FormData(menuButton.form);
-    data.set('action', 'menu');
-    try {
-        const response = await fetch(menuButton.form.action, {
-            method: 'POST', body: data, headers: {'Accept': 'application/json'}
-        });
-        if (!response.ok) throw new Error('Menu update failed');
-        const state = await response.json();
-        document.body.classList.toggle('sidebar-collapsed', state.collapsed);
-        menuButton.setAttribute('aria-expanded', String(!state.collapsed));
-        menuButton.removeAttribute('title');
-    } catch {
-        menuButton.title = 'Unable to update the menu. Please try again.';
-    } finally {
-        menuButton.disabled = false;
-    }
+document.querySelectorAll('.notice[role="status"]').forEach(notice => {
+    setTimeout(() => notice.remove(), 5000);
 });
 
 const dueInput = document.getElementById('task-due');

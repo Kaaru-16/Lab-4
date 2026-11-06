@@ -35,6 +35,26 @@ function taskStatus($task) {
 
 $_SESSION['new_tasks'] = $_SESSION['new_tasks'] ?? [];
 $_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Personal'];
+// Load the Figma examples once, then treat them like regular editable tasks.
+if (empty($_SESSION['sample_tasks_loaded'])) {
+    $sampleTasks = [
+        ['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'tomorrow 10:00', 'high', 'Coursework', 'todo'],
+        ['Review PHP forms', 'Read the notes on POST and validation.', 'tomorrow 13:00', 'medium', 'Study', 'todo'],
+        ['Organize project files', 'Group references, screenshots, and notes.', '+2 days 09:00', 'low', 'Personal', 'todo'],
+        ['Design the task manager', 'Refine the board, form, and task controls.', 'yesterday 11:30', 'high', 'Coursework', 'todo'],
+        ['Study session handling', 'Review task persistence across page reloads.', 'yesterday 14:00', 'medium', 'Study', 'todo'],
+        ['Read the lab brief', 'List the required CRUD operations.', 'today 09:00', 'low', 'Coursework', 'completed'],
+        ['Set up the workspace', 'Create the project folder and collect assets.', 'today 09:00', 'low', 'Coursework', 'completed'],
+    ];
+    $existingNames = array_column($_SESSION['new_tasks'], 'name');
+    foreach ($sampleTasks as [$name, $description, $relativeDue, $priority, $category, $status]) {
+        if (in_array($name, $existingNames, true)) continue;
+        if (!in_array($category, $_SESSION['categories'], true)) $_SESSION['categories'][] = $category;
+        $due = date('Y-m-d\TH:i', strtotime($relativeDue));
+        $_SESSION['new_tasks'][] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['reminder' => ''];
+    }
+    $_SESSION['sample_tasks_loaded'] = true;
+}
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
 $_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
@@ -231,14 +251,14 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="color-scheme" content="<?= $_SESSION['theme'] ?>">
         <title>Block Tasks | Task inventory</title>
-        <link rel="stylesheet" href="style.css">
-        <script src="script.js" defer></script>
+        <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
+        <script src="script.js?v=<?= filemtime(__DIR__ . '/script.js') ?>" defer></script>
     </head>
     <body class="<?= $_SESSION['collapsed'] ? 'sidebar-collapsed' : '' ?> <?= $_SESSION['theme'] === 'light' ? 'light-theme' : '' ?>">
         <aside class="sidebar" aria-label="Workspace sidebar">
             <form action="<?= escape($pageUrl) ?>" method="POST" class="control-form">
                 <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                <button class="menu-button" name="action" value="menu" aria-label="Toggle sidebar" aria-expanded="<?= $_SESSION['collapsed'] ? 'false' : 'true' ?>">
+                <button type="submit" class="menu-button" name="action" value="menu" aria-label="Toggle sidebar" aria-expanded="<?= $_SESSION['collapsed'] ? 'false' : 'true' ?>">
                     <img src="<?= iconPath('menu') ?>" alt="">
                 </button>
             </form>
@@ -409,8 +429,8 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
             </section>
         </main>
         <?php if ($showForm || $showCategoryForm || $showCategoryDelete): ?>
-            <aside id="create-task" class="task-panel <?= $showCategoryForm || $showCategoryDelete ? 'category-panel' : '' ?>" aria-labelledby="create-title">
-                <section class="create-panel">
+            <aside id="create-task" class="<?= $showCategoryDelete || $showCategoryForm ? 'modal-overlay category-overlay' : 'task-panel' ?>" aria-labelledby="create-title">
+                <section class="<?= $showCategoryDelete || $showCategoryForm ? 'modal-panel category-dialog' . ($showCategoryDelete ? ' category-delete-dialog' : ' category-create-dialog') : 'create-panel' ?>" <?= $showCategoryDelete || $showCategoryForm ? 'role="dialog" aria-modal="true" aria-labelledby="create-title"' : '' ?>>
                     <header class="form-heading">
                         <h2 id="create-title"><?= $showCategoryDelete ? 'Delete Category' : ($showCategoryForm ? 'Create Category' : ($editing ? 'Edit task' : 'Create task')) ?></h2>
                         <?php if (!$showCategoryForm && !$showCategoryDelete): ?><a href="index.php" class="secondary-button">Close</a><?php endif; ?>
@@ -442,7 +462,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                             <label for="category-name">Category name</label>
                             <input id="category-name" name="category_name" value="<?= escape($categoryName) ?>" placeholder="Enter a category name" required maxlength="30">
                             <footer class="form-actions">
-                                <button class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
+                                <button class="primary-button"><img src="image/dark/icon-category-plus.svg" alt="">Create Category</button>
                                 <a href="index.php" class="secondary-button">Cancel</a>
                             </footer>
                         </form>

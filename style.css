@@ -45,6 +45,11 @@
     --tint: #cdd7ba;
 }
 * { box-sizing: border-box; }
+html, .sidebar, .task-panel, .modal-overlay { scrollbar-width: none; }
+html::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.task-panel::-webkit-scrollbar,
+.modal-overlay::-webkit-scrollbar { display: none; }
 body {
     --sidebar-width: 232px;
     margin: 0;
@@ -457,6 +462,7 @@ select { color-scheme: dark; }
 select option { background: var(--surface); color: var(--text); }
 .light-theme select { color-scheme: light; }
 .completion-form { display: inline; margin: 0; }
+.task-checkbox, .task-checkbox input { cursor: pointer; }
 .task-checkbox input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
 .task-checkbox:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
 .modal-overlay { position: fixed; inset: 0; z-index: 9999; place-items: center; background: #0009; }
@@ -473,7 +479,22 @@ select option { background: var(--surface); color: var(--text); }
     box-shadow: var(--bevel);
 }
 .modal-panel h2 { font-size: 27px; }
+.category-overlay { padding: 20px; overflow-y: auto; grid-template-columns: minmax(0, 1fr); }
+.category-dialog { max-width: 100%; min-width: 0; box-shadow: 3px 3px 20px #0006, inset 2px 2px 0 #fff4; }
+.category-create-dialog { width: 383px; gap: 16px; }
+.category-create-dialog .form-heading { min-height: 46px; margin: 0; }
+.category-create-dialog .create-form { margin: 0; }
+.category-dialog.category-create-dialog .form-actions > :first-child { flex: 197; }
+.category-create-dialog .form-actions > :last-child { flex: 128; }
+.category-create-dialog .form-actions > * { min-width: 0; min-height: 54px; padding: 15px; gap: 8px; font: 700 14px/1.4 var(--pixel); }
+.category-create-dialog .secondary-button { background: var(--canvas); border-color: #263024; color: var(--text); box-shadow: inset 2px 2px 0 #fff4; }
+.category-create-dialog .primary-button { box-shadow: inset 2px 2px 0 #fff4; }
+.category-delete-dialog { width: 440px; max-width: 100%; min-width: 0; min-height: 0; }
+.category-delete-dialog .form-heading { min-height: 0; margin-bottom: 0; }
+.category-delete-dialog .create-form { margin-top: 0; }
+.category-delete-dialog .form-actions > * { flex: 1; }
 .modal-panel p { color: var(--text); font: 700 13px/1.4 var(--pixel); }
+.category-delete-dialog p { color: var(--muted); font: inherit; }
 
 .form-icon { display: grid; justify-items: center; align-items: start; width: 18px; height: 18px; }
 .modal-panel .form-actions > :first-child { flex: 152; }
