@@ -10,7 +10,11 @@ if (dueInput) {
             day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
         }).formatToParts(new Date());
         const time = Object.fromEntries(parts.map(part => [part.type, part.value]));
-        dueInput.min = `${time.year}-${time.month}-${time.day}T${time.hour}:${time.minute}`;
+        const currentMinimum = `${time.year}-${time.month}-${time.day}T${time.hour}:${time.minute}`;
+        const savedDue = dueInput.dataset.savedDue;
+        dueInput.min = savedDue && dueInput.value === savedDue && savedDue < currentMinimum
+            ? savedDue
+            : currentMinimum;
     }
     dueInput.addEventListener('focus', refreshDueMinimum);
     dueInput.addEventListener('input', refreshDueMinimum);

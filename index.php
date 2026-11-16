@@ -1,7 +1,5 @@
 <?php
 session_start();
-//unset($_SESSION['new_tasks']); 
-//unset($_SESSION['categories']); 
 date_default_timezone_set('Asia/Taipei');
 $minimumDue = date('Y-m-d\TH:i');
 
@@ -10,7 +8,7 @@ function escape($value) {
 }
 
 function iconPath($name) {
-    return 'image/' . ($_SESSION['theme'] === 'light' ? 'light' : 'dark') . '/icon-' . $name . '.svg';
+    return 'image/' . $_SESSION['theme'] . '/icon-' . $name . '.svg';
 }
 
 function posted($key, $default = '') {
@@ -28,221 +26,288 @@ function buildViewLink($view, $params) {
     return 'index.php' . ($params ? '?' . http_build_query($params) : '');
 }
 
-function taskStatus($task) {
-    if ($task['status'] === 'completed') return 'completed';
-    return $task['due'] !== '' && strtotime($task['due']) < time() ? 'overdue' : 'todo';
+function taskId(string $value): ?int {
+    $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
+    return $id === false ? null : $id;
 }
 
-$_SESSION['new_tasks'] = $_SESSION['new_tasks'] ?? [];
-$_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Personal'];
-// Load the Figma examples once, then treat them like regular editable tasks.
-if (empty($_SESSION['sample_tasks_loaded'])) {
-    $sampleTasks = [
-        ['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'tomorrow 10:00', 'high', 'Coursework', 'todo'],
-        ['Review PHP forms', 'Read the notes on POST and validation.', 'tomorrow 13:00', 'medium', 'Study', 'todo'],
-        ['Organize project files', 'Group references, screenshots, and notes.', '+2 days 09:00', 'low', 'Personal', 'todo'],
-        ['Design the task manager', 'Refine the board, form, and task controls.', 'yesterday 11:30', 'high', 'Coursework', 'todo'],
-        ['Study session handling', 'Review task persistence across page reloads.', 'yesterday 14:00', 'medium', 'Study', 'todo'],
-        ['Read the lab brief', 'List the required CRUD operations.', 'today 09:00', 'low', 'Coursework', 'completed'],
-        ['Set up the workspace', 'Create the project folder and collect assets.', 'today 09:00', 'low', 'Coursework', 'completed'],
-    ];
-    $existingNames = array_column($_SESSION['new_tasks'], 'name');
-    foreach ($sampleTasks as [$name, $description, $relativeDue, $priority, $category, $status]) {
-        if (in_array($name, $existingNames, true)) continue;
-        if (!in_array($category, $_SESSION['categories'], true)) $_SESSION['categories'][] = $category;
-        $due = date('Y-m-d\TH:i', strtotime($relativeDue));
-        $_SESSION['new_tasks'][] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['reminder' => ''];
+function findTask(PDO $pdo, int $id): ?array {
+    $stmt = $pdo->prepare(
+        "SELECT task_name AS name, task_description AS description,
+                DATE_FORMAT(due_at, '%Y-%m-%dT%H:%i') AS due, priority, category, status, reminder
+         FROM tasks WHERE id = ?"
+    );
+    $stmt->execute([$id]);
+    $task = $stmt->fetch();
+    if ($task === false) {
+        return null;
     }
-    $_SESSION['sample_tasks_loaded'] = true;
+
+    $task['due'] = $task['due'] ?? '';
+    $task['status'] = $task['status'] === 'completed' ? 'completed' : 'todo';
+    return $task;
 }
+
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
-$_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
-$_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
-$fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo', 'reminder' => ''];
-$selectedCategory = isset($_GET['category']) && is_string($_GET['category']) && in_array($_GET['category'], $_SESSION['categories'], true)
-    ? $_GET['category']
-    : null;
-$errors = [];
-$showForm = isset($_GET['new']);
-$showCategoryForm = isset($_GET['new_category']);
+$_SESSION['theme'] = ($_SESSION['theme'] ?? 'dark') === 'light' ? 'light' : 'dark';
+$token = $_SESSION['task_db_token'] ??= bin2hex(random_bytes(32));
 $pageParams = array_filter($_GET, 'is_string');
 $pageUrl = 'index.php' . ($pageParams ? '?' . http_build_query($pageParams) : '');
+$errors = [];
+$showForm = isset($pageParams['new']);
+$showCategoryForm = isset($pageParams['new_category']);
 $showCategoryDelete = false;
 $deleteCategoryName = '';
 $categoryName = '';
 $editing = false;
 $taskId = null;
+$savedDue = '';
 $notice = $_SESSION['notice'] ?? '';
 unset($_SESSION['notice']);
 
-if (isset($_GET['delete_category'])) {
-    $deleteCategoryName = is_string($_GET['delete_category']) ? $_GET['delete_category'] : '';
-    if (in_array($deleteCategoryName, $_SESSION['categories'], true)) {
-        $showCategoryDelete = true;
-    } else {
-        http_response_code(404);
-        $errors[] = 'Category not found.';
-    }
-}
+try {
+    require __DIR__ . '/db.php';
 
-if (isset($_GET['edit'])) {
-    $requestedTaskId = is_string($_GET['edit']) && ctype_digit($_GET['edit']) ? (int) $_GET['edit'] : null;
-    if ($requestedTaskId !== null && array_key_exists($requestedTaskId, $_SESSION['new_tasks'])) {
-        $taskId = $requestedTaskId;
-        $fields = array_merge($fields, $_SESSION['new_tasks'][$taskId]);
-        $showForm = true;
-        $editing = true;
-    } else {
-        http_response_code(404);
-        $errors[] = 'Task not found.';
-    }
-}
+    $stmt = $pdo->prepare('SELECT name FROM categories ORDER BY id');
+    $stmt->execute();
+    $categories = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $requestedCategory = $pageParams['category'] ?? '';
+    $selectedCategory = in_array($requestedCategory, $categories, true) ? $requestedCategory : null;
+    $defaultCategory = in_array('Coursework', $categories, true) ? 'Coursework' : ($categories[0] ?? '');
+    $fields = [
+        'name' => '', 'description' => '', 'due' => '', 'priority' => 'medium',
+        'category' => $selectedCategory ?? $defaultCategory, 'status' => 'todo', 'reminder' => '',
+    ];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = posted('action');
-    if (!hash_equals($_SESSION['token'], posted('token'))) {
-        http_response_code(403);
-        $errors[] = 'Your form expired. Reload the page and try again.';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $action = posted('action');
+        $taskId = taskId(posted('task_id'));
 
-    } elseif ($action === 'menu') {
-        $_SESSION['collapsed'] = !$_SESSION['collapsed'];
-    } elseif ($action === 'toggle_complete') {
-        $postedTaskId = posted('task_id');
-        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
-            $taskId = (int) $postedTaskId;
-            $currentStatus = $_SESSION['new_tasks'][$taskId]['status'] ?? 'todo';
-            $_SESSION['new_tasks'][$taskId]['status'] = ($currentStatus === 'completed') ? 'todo' : 'completed';
-            $_SESSION['notice'] = 'Task status updated.';
-        } else {
-            http_response_code(404);
-            $errors[] = 'Task not found.';
-        }
-    } elseif ($action === 'theme') {
-        $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
-    } elseif ($action === 'delete') {
-        $postedTaskId = posted('task_id');
-        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
-            unset($_SESSION['new_tasks'][(int) $postedTaskId]);
-            $_SESSION['notice'] = 'Task deleted.';
-        } else {
-            http_response_code(404);
-            $errors[] = 'Task not found.';
-        }
-
-    } elseif ($action === 'category_create') {
-        $showCategoryForm = true;
-        $categoryName = posted('category_name');
-        if ($categoryName === '' || textLength($categoryName) > 30) {
-            $errors[] = 'Category name must contain 1 to 30 characters.';
-        }
-        $existingCategories = array_map('strtolower', $_SESSION['categories']);
-        if (in_array(strtolower($categoryName), $existingCategories, true)) {
-            $errors[] = 'That category already exists.';
-        }
-        if (!$errors) {
-            $_SESSION['categories'][] = $categoryName;
-            $_SESSION['notice'] = 'Category created.';
-        }
-
-    } elseif ($action === 'category_delete') {
-        $categoryName = posted('category_name');
-        $categoryIndex = array_search($categoryName, $_SESSION['categories'], true);
-        if ($categoryIndex === false) {
-            http_response_code(404);
-            $errors[] = 'Category not found.';
-        } else {
-            unset($_SESSION['categories'][$categoryIndex]);
-            $_SESSION['categories'] = array_values($_SESSION['categories']);
-            foreach ($_SESSION['new_tasks'] as $id => $task) {
-                if ($task['category'] === $categoryName) unset($_SESSION['new_tasks'][$id]);
-            }
-            $_SESSION['notice'] = 'Category and its tasks deleted.';
-        }
-
-    } elseif ($action === 'create' || $action === 'update') {
-        $editing = $action === 'update';
-        $showForm = true;
-        if ($editing) {
-            $postedTaskId = posted('task_id');
-            if ($postedTaskId === '' || !ctype_digit($postedTaskId) || !array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
+        if (!hash_equals($token, posted('token'))) {
+            http_response_code(403);
+            $errors[] = 'Your form expired. Reload the page and try again.';
+        } elseif ($action === 'menu') {
+            $_SESSION['collapsed'] = !$_SESSION['collapsed'];
+        } elseif ($action === 'theme') {
+            $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
+        } elseif ($action === 'toggle_complete' || $action === 'delete') {
+            if ($taskId === null) {
                 http_response_code(404);
                 $errors[] = 'Task not found.';
-                $editing = false;
             } else {
-                $taskId = (int) $postedTaskId;
+                $stmt = $pdo->prepare($action === 'delete'
+                    ? 'DELETE FROM tasks WHERE id = ?'
+                    : "UPDATE tasks SET status = IF(status = 'completed', 'pending', 'completed') WHERE id = ?");
+                $stmt->execute([$taskId]);
+                if ($stmt->rowCount() === 0) {
+                    http_response_code(404);
+                    $errors[] = 'Task not found.';
+                } else {
+                    $_SESSION['notice'] = $action === 'delete' ? 'Task deleted.' : 'Task status updated.';
+                }
             }
-        }
-        foreach ($fields as $key => $default) $fields[$key] = posted($key, $default);
-        $fields['reminder'] = posted('reminder') === '1' ? '1' : '';
-        if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
-            $errors[] = 'Task name must contain 3 to 100 characters.';
-        }
-        if ($fields['description'] === '' || textLength($fields['description']) > 255) {
-            $errors[] = 'Description must contain 1 to 255 characters.';
-        }
-        if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) $errors[] = 'Choose a valid priority.';
-        if (!in_array($fields['category'], $_SESSION['categories'], true)) $errors[] = 'Choose a valid category.';
-        if (!in_array($fields['status'], ['todo', 'completed'], true)) $errors[] = 'Choose a valid status.';
-        if ($fields['due'] !== '') {
-            $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
-            if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due']) {
-                $errors[] = 'Enter a valid due date and time.';
-            } elseif ($fields['due'] < $minimumDue) {
-                $errors[] = 'Choose a current or future due date and time.';
+        } elseif ($action === 'category_create') {
+            $showCategoryForm = true;
+            $categoryName = posted('category_name');
+            if ($categoryName === '' || textLength($categoryName) > 30) {
+                $errors[] = 'Category name must contain 1 to 30 characters.';
+            } elseif (in_array(strtolower($categoryName), array_map('strtolower', $categories), true)) {
+                $errors[] = 'That category already exists.';
+            } else {
+                $stmt = $pdo->prepare('INSERT INTO categories (name) VALUES (?) ON DUPLICATE KEY UPDATE id = id');
+                $stmt->execute([$categoryName]);
+                if ($stmt->rowCount() === 0) {
+                    $errors[] = 'That category already exists.';
+                } else {
+                    $_SESSION['notice'] = 'Category created.';
+                }
             }
-        }
-        if (!$errors) {
+        } elseif ($action === 'category_delete') {
+            $categoryName = posted('category_name');
+            $deleted = false;
+            if (in_array($categoryName, $categories, true)) {
+                $stmt = $pdo->prepare('DELETE FROM categories WHERE name = ?');
+                $stmt->execute([$categoryName]);
+                $deleted = $stmt->rowCount() > 0;
+            }
+            if ($deleted) {
+                $_SESSION['notice'] = 'Category and its tasks deleted.';
+            } else {
+                http_response_code(404);
+                $errors[] = 'Category not found.';
+            }
+        } elseif ($action === 'create' || $action === 'update') {
+            $editing = $action === 'update';
+            $showForm = true;
             if ($editing) {
-                $_SESSION['new_tasks'][$taskId] = $fields;
-                $_SESSION['notice'] = 'Task updated.';
-            } else {
-                $_SESSION['new_tasks'][] = $fields;
-                $_SESSION['notice'] = 'Task created.';
+                $savedTask = $taskId === null ? null : findTask($pdo, $taskId);
+                if ($savedTask === null) {
+                    http_response_code(404);
+                    $errors[] = 'Task not found.';
+                } else {
+                    $savedDue = $savedTask['due'];
+                }
             }
+
+            foreach ($fields as $key => $default) {
+                $fields[$key] = posted($key, $default);
+            }
+            $fields['reminder'] = $fields['reminder'] === '1' ? 1 : 0;
+            if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
+                $errors[] = 'Task name must contain 3 to 100 characters.';
+            }
+            if ($fields['description'] === '' || textLength($fields['description']) > 255) {
+                $errors[] = 'Description must contain 1 to 255 characters.';
+            }
+            if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) {
+                $errors[] = 'Choose a valid priority.';
+            }
+            if (!in_array($fields['category'], $categories, true)) {
+                $errors[] = 'Choose a valid category.';
+            }
+            if (!in_array($fields['status'], ['todo', 'completed'], true)) {
+                $errors[] = 'Choose a valid status.';
+            }
+
+            $dueAt = null;
+            if ($fields['due'] !== '') {
+                $date = preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/D', $fields['due'])
+                    ? DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due'])
+                    : false;
+                if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due'] || (int) $date->format('Y') < 1000) {
+                    $errors[] = 'Enter a valid due date and time.';
+                } elseif ($fields['due'] < $minimumDue && $fields['due'] !== $savedDue) {
+                    $errors[] = 'Choose a current or future due date and time.';
+                } else {
+                    $dueAt = $date->format('Y-m-d H:i:s');
+                }
+            }
+
+            if (!$errors) {
+                $status = $fields['status'] === 'completed' ? 'completed' : 'pending';
+                $values = [
+                    $fields['name'], $fields['description'], $dueAt, $fields['priority'],
+                    $fields['category'], $status, $fields['reminder'],
+                ];
+                try {
+                    if ($editing) {
+                        $stmt = $pdo->prepare(
+                            'UPDATE tasks SET task_name = ?, task_description = ?, due_at = ?, priority = ?,
+                                              category = ?, status = ?, reminder = ? WHERE id = ?'
+                        );
+                        $stmt->execute([...$values, $taskId]);
+                        if ($stmt->rowCount() === 0 && findTask($pdo, $taskId) === null) {
+                            http_response_code(404);
+                            $errors[] = 'Task not found.';
+                        } else {
+                            $_SESSION['notice'] = 'Task updated.';
+                        }
+                    } else {
+                        $stmt = $pdo->prepare(
+                            'INSERT INTO tasks (task_name, task_description, due_at, priority, category, status, reminder)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)'
+                        );
+                        $stmt->execute($values);
+                        $_SESSION['notice'] = 'Task created.';
+                    }
+                } catch (PDOException $error) {
+                    if ((int) ($error->errorInfo[1] ?? 0) !== 1452) {
+                        throw $error;
+                    }
+                    http_response_code(409);
+                    $errors[] = 'This category is no longer available. Reload the board to choose another.';
+                }
+            }
+        } else {
+            http_response_code(400);
+            $errors[] = 'Unknown form action.';
         }
-    } else {
-        http_response_code(400);
-        $errors[] = 'Unknown form action.';
-    }
-    if (!$errors) {
-        if ($action === 'menu' && ($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json') {
-            header('Content-Type: application/json');
-            echo json_encode(['collapsed' => $_SESSION['collapsed']]);
+
+        if (!$errors) {
+            if ($action === 'menu' && ($_SERVER['HTTP_ACCEPT'] ?? '') === 'application/json') {
+                header('Content-Type: application/json');
+                echo json_encode(['collapsed' => $_SESSION['collapsed']]);
+                exit;
+            }
+            header('Location: ' . (in_array($action, ['menu', 'theme'], true) ? $pageUrl : 'index.php'), true, 303);
             exit;
         }
-        header('Location: ' . (in_array($action, ['menu', 'theme'], true) ? $pageUrl : 'index.php'), true, 303);
-        exit;
+        if (http_response_code() === 200) {
+            http_response_code(422);
+        }
+    } else {
+        if (isset($_GET['delete_category'])) {
+            $deleteCategoryName = $pageParams['delete_category'] ?? '';
+            $showCategoryDelete = in_array($deleteCategoryName, $categories, true);
+            if (!$showCategoryDelete) {
+                http_response_code(404);
+                $errors[] = 'Category not found.';
+            }
+        }
+        if (isset($_GET['edit'])) {
+            $taskId = taskId($pageParams['edit'] ?? '');
+            $task = $taskId === null ? null : findTask($pdo, $taskId);
+            if ($task === null) {
+                http_response_code(404);
+                $errors[] = 'Task not found.';
+            } else {
+                $fields = $task;
+                $savedDue = $fields['due'];
+                $showForm = true;
+                $editing = true;
+            }
+        }
     }
-    if (http_response_code() === 200) http_response_code(422);
+
+    $stmt = $pdo->prepare(
+        'SELECT id, task_name AS name, task_description AS description, due_at, priority, category, status
+         FROM tasks ORDER BY id'
+    );
+    $stmt->execute();
+    $tasks = $stmt->fetchAll();
+} catch (PDOException $error) {
+    error_log('Block Tasks database error: ' . $error->getMessage());
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=UTF-8');
+    exit('Database unavailable. Check the connection settings and import task_db.sql.');
 }
 
 $columns = ['todo' => 'To do', 'overdue' => 'Overdue', 'completed' => 'Completed'];
-$tasks = [];
-foreach ($_SESSION['new_tasks'] as $id => $task) {
-    $task['status'] = taskStatus($task);
-    $task['due'] = $task['due'] !== '' ? date('M j, Y, g:i A', strtotime($task['due'])) : 'No due date';
-    $task['session_id'] = $id;
-    $tasks[] = $task;
-}
-$searchQuery = trim($pageParams['search'] ?? '');
-$priorityFilter = $pageParams['priority'] ?? '';
-$dueStatusFilter = $pageParams['due_status'] ?? '';
-$viewFilter = $pageParams['view'] ?? 'all';
-$tasks = array_filter($tasks, static function ($task) use ($searchQuery, $priorityFilter, $dueStatusFilter, $selectedCategory) {
-    return ($searchQuery === '' || stripos($task['name'], $searchQuery) !== false || stripos($task['description'], $searchQuery) !== false)
-        && ($priorityFilter === '' || strcasecmp($task['priority'], $priorityFilter) === 0)
-        && ($dueStatusFilter === '' || strcasecmp($task['status'], $dueStatusFilter) === 0)
-        && ($selectedCategory === null || $task['category'] === $selectedCategory);
-});
-// Count before selecting a view so the tab totals stay stable.
 $counts = array_fill_keys(array_keys($columns), 0);
-foreach ($tasks as $task) $counts[$task['status']]++;
-$total = count($tasks);
-$tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
-    return ($viewFilter !== 'active' || $task['status'] !== 'completed')
-        && ($viewFilter !== 'completed' || $task['status'] === 'completed');
-});
+$tasksByStatus = array_fill_keys(array_keys($columns), []);
+$searchQuery = trim($pageParams['search'] ?? '');
+$priorityFilter = strtolower($pageParams['priority'] ?? '');
+$dueStatusFilter = strtolower($pageParams['due_status'] ?? '');
+$viewFilter = $pageParams['view'] ?? 'all';
+$now = time();
 
+foreach ($tasks as $task) {
+    $due = $task['due_at'] === null ? null : strtotime($task['due_at']);
+    $status = $task['status'] === 'completed' ? 'completed' : ($due !== null && $due < $now ? 'overdue' : 'todo');
+
+    if ($selectedCategory !== null && $task['category'] !== $selectedCategory) {
+        continue;
+    }
+    if ($searchQuery !== '' && stripos($task['name'], $searchQuery) === false && stripos($task['description'], $searchQuery) === false) {
+        continue;
+    }
+    if ($priorityFilter !== '' && $priorityFilter !== $task['priority']) {
+        continue;
+    }
+    if ($dueStatusFilter !== '' && $dueStatusFilter !== $status) {
+        continue;
+    }
+
+    $counts[$status]++;
+    if (($viewFilter === 'active' && $status === 'completed') || ($viewFilter === 'completed' && $status !== 'completed')) {
+        continue;
+    }
+    $task['due'] = $due === null ? 'No due date' : date('M j, Y, g:i A', $due);
+    $tasksByStatus[$status][] = $task;
+}
+
+$total = array_sum($counts);
+$dueInputMinimum = $savedDue !== '' && $fields['due'] === $savedDue && $savedDue < $minimumDue ? $savedDue : $minimumDue;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -257,7 +322,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
     <body class="<?= $_SESSION['collapsed'] ? 'sidebar-collapsed' : '' ?> <?= $_SESSION['theme'] === 'light' ? 'light-theme' : '' ?>">
         <aside class="sidebar" aria-label="Workspace sidebar">
             <form action="<?= escape($pageUrl) ?>" method="POST" class="control-form">
-                <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                <input type="hidden" name="token" value="<?= escape($token) ?>">
                 <button type="submit" class="menu-button" name="action" value="menu" aria-label="Toggle sidebar" aria-expanded="<?= $_SESSION['collapsed'] ? 'false' : 'true' ?>">
                     <img src="<?= iconPath('menu') ?>" alt="">
                 </button>
@@ -288,7 +353,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
-                <?php foreach ($_SESSION['categories'] as $category): ?>
+                <?php foreach ($categories as $category): ?>
                     <li>
                         <a href="index.php?category=<?= rawurlencode($category) ?>" class="<?= $selectedCategory === $category ? 'selected' : '' ?>" <?= $selectedCategory === $category ? 'aria-current="page"' : '' ?>>
                             <span class="category-marker <?= in_array($category, ['Coursework', 'Study', 'Personal'], true) ? strtolower($category) : '' ?>"></span>
@@ -307,7 +372,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
             <div class="appearance">
                 <h2>APPEARANCE</h2>
                 <form action="<?= escape($pageUrl) ?>" method="POST" class="control-form switch-wrap">
-                    <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                    <input type="hidden" name="token" value="<?= escape($token) ?>">
                     <button class="appearance-switch" name="action" value="theme" aria-label="<?= $_SESSION['theme'] === 'dark' ? 'Use light theme' : 'Use dark theme' ?>" aria-pressed="<?= $_SESSION['theme'] === 'light' ? 'true' : 'false' ?>"><span></span></button>
                 </form>
             </div>
@@ -331,11 +396,11 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                 </a>
             </header>
             <?php if ($notice !== ''): ?><p class="notice" role="status"><?= escape($notice) ?></p><?php endif; ?>
-            <?php if ($errors && !$showForm): ?><p class="errors" role="alert"><?= escape(implode(' ', $errors)) ?></p><?php endif; ?>
+            <?php if ($errors && !$showForm && !$showCategoryForm && !$showCategoryDelete): ?><p class="errors" role="alert"><?= escape(implode(' ', $errors)) ?></p><?php endif; ?>
             <section class="summary" aria-label="Task summary">
                 <header>
                     <h2>Your next task starts here.</h2>
-                    <p><?= $total ?> tasks this week. Plan, track, and complete.</p>
+                    <p><?= $total ?> <?= $total === 1 ? 'task' : 'tasks' ?> on this board.</p>
                 </header>
                 <?php foreach ($columns as $status => $label): ?>
                     <div class="stat <?= $status ?>-stat">
@@ -352,6 +417,12 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                 </div>
                 <div class="toolbar-rule"></div>
                 <form action="index.php" method="GET" class="sort-filters">
+                    <?php if ($selectedCategory !== null): ?>
+                        <input type="hidden" name="category" value="<?= escape($selectedCategory) ?>">
+                    <?php endif; ?>
+                    <?php if ($viewFilter !== 'all'): ?>
+                        <input type="hidden" name="view" value="<?= escape($viewFilter) ?>">
+                    <?php endif; ?>
                     <?php if ($searchQuery !== ''): ?>
                         <input type="hidden" name="search" value="<?= escape($searchQuery) ?>">
                     <?php endif; ?>
@@ -386,18 +457,17 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                             <h2 id="column-<?= $status ?>"><?= $label ?></h2>
                             <span class="task-count"><?= $counts[$status] ?></span>
                         </header>
-                        <?php foreach ($tasks as $task): ?>
-                            <?php if ($task['status'] !== $status) continue; ?>
+                        <?php foreach ($tasksByStatus[$status] as $task): ?>
                             <article class="task-card <?= $status === 'completed' ? 'is-complete' : '' ?>">
                                 <header class="card-meta">
                                     <span class="priority <?= $status === 'completed' ? 'low' : escape($task['priority']) ?>"><?= $status === 'completed' ? 'Completed' : ucfirst(escape($task['priority'])) . ' priority' ?></span>
                                     <span><?= escape($task['category']) ?></span>
                                 </header>
                                 <header class="task-heading">
-                                    <form id="toggle-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="completion-form">
-                                        <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                    <form id="toggle-form-<?= (int) $task['id'] ?>" action="index.php" method="POST" class="completion-form">
+                                        <input type="hidden" name="token" value="<?= escape($token) ?>">
                                         <input type="hidden" name="action" value="toggle_complete">
-                                        <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
+                                        <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                                         <label class="task-checkbox">
                                             <input type="checkbox" aria-label="Toggle <?= escape($task['name']) ?> completion" <?= $status === 'completed' ? 'checked' : '' ?>>
                                             <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
@@ -410,12 +480,12 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                                     <img src="<?= iconPath('clock') ?>" alt="">
                                     <span><?= escape($task['due']) ?></span>
                                     <div class="card-actions">
-                                        <a href="index.php?edit=<?= (int) $task['session_id'] ?>" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></a>
-                                        <form id="delete-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="control-form">
-                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                        <a href="index.php?edit=<?= (int) $task['id'] ?>" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></a>
+                                        <form id="delete-form-<?= (int) $task['id'] ?>" action="index.php" method="POST" class="control-form">
+                                            <input type="hidden" name="token" value="<?= escape($token) ?>">
                                             <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                            <button type="button" data-delete-task="<?= (int) $task['session_id'] ?>" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
+                                            <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                                            <button type="button" data-delete-task="<?= (int) $task['id'] ?>" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
                                         </form>
                                     </div>
                                 </footer>
@@ -447,7 +517,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                     <?php endif; ?>
                     <?php if ($showCategoryDelete): ?>
                         <form action="index.php" method="POST" class="create-form category-form">
-                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="token" value="<?= escape($token) ?>">
                             <input type="hidden" name="action" value="category_delete">
                             <input type="hidden" name="category_name" value="<?= escape($deleteCategoryName) ?>">
                             <footer class="form-actions">
@@ -457,7 +527,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                         </form>
                     <?php elseif ($showCategoryForm): ?>
                         <form action="index.php" method="POST" class="create-form category-form">
-                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="token" value="<?= escape($token) ?>">
                             <input type="hidden" name="action" value="category_create">
                             <label for="category-name">Category name</label>
                             <input id="category-name" name="category_name" value="<?= escape($categoryName) ?>" placeholder="Enter a category name" required maxlength="30">
@@ -468,7 +538,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                         </form>
                     <?php else: ?>
                         <form action="index.php" method="POST" class="create-form">
-                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                            <input type="hidden" name="token" value="<?= escape($token) ?>">
                             <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
                             <?php if ($editing && $taskId !== null): ?>
                                 <input type="hidden" name="task_id" value="<?= (int) $taskId ?>">
@@ -480,7 +550,7 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                             <textarea id="task-description" name="description" aria-describedby="description-help" required maxlength="255" rows="3" placeholder="Describe what needs to get done."><?= escape($fields['description']) ?></textarea>
                             <small id="description-help"><?= textLength($fields['description']) ?> / 255 characters</small>
                             <label for="task-due">Due date &amp; time</label>
-                            <input type="datetime-local" id="task-due" name="due" min="<?= escape($minimumDue) ?>" value="<?= escape($fields['due']) ?>" aria-describedby="due-help">
+                            <input type="datetime-local" id="task-due" name="due" min="<?= escape($dueInputMinimum) ?>" data-saved-due="<?= escape($savedDue) ?>" value="<?= escape($fields['due']) ?>" aria-describedby="due-help">
                             <small id="due-help">Choose today or a future date and time.</small>
                             <fieldset class="priority-choices">
                                 <legend>Priority</legend>
@@ -489,8 +559,9 @@ $tasks = array_filter($tasks, static function ($task) use ($viewFilter) {
                                 <?php endforeach; ?>
                             </fieldset>
                             <label for="task-category">Category</label>
-                            <select id="task-category" name="category">
-                                <?php foreach ($_SESSION['categories'] as $category): ?>
+                            <select id="task-category" name="category" required>
+                                <?php if (!$categories): ?><option value="">Create a category first</option><?php endif; ?>
+                                <?php foreach ($categories as $category): ?>
                                     <option value="<?= escape($category) ?>" <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option>
                                 <?php endforeach; ?>
                             </select>
