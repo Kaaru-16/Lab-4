@@ -7,29 +7,42 @@ function escape($value) {
 }
 
 function iconPath($name) {
-    return 'image/' . ($_SESSION['theme'] === 'light' ? 'light' : 'dark') . '/icon-' . $name . '.svg';
+    return 'image/' . $_SESSION['theme'] . '/icon-' . $name . '.svg';
 }
 
-function posted($key, $default = '') {
-    return isset($_POST[$key]) && is_string($_POST[$key]) ? trim($_POST[$key]) : $default;
+function inputText(array $input, string $key, string $default = ''): string {
+    return isset($input[$key]) && is_string($input[$key]) ? trim($input[$key]) : $default;
 }
 
-function textLength($value) {
+function textLength(string $value): int {
     $length = preg_match_all('/./us', $value);
     return $length === false ? PHP_INT_MAX : $length;
 }
 
-function taskStatus($task) {
-    if ($task['status'] === 'completed') return 'completed';
-    return $task['due'] !== '' && strtotime($task['due']) < time() ? 'overdue' : 'todo';
+function taskId(string $value): ?int {
+    $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
+    return $id === false ? null : $id;
 }
 
-$_SESSION['new_tasks'] = $_SESSION['new_tasks'] ?? [];
-$_SESSION['categories'] = $_SESSION['categories'] ?? ['Coursework', 'Study', 'Personal'];
+function findTask(PDO $pdo, int $id): ?array {
+    $stmt = $pdo->prepare(
+        'SELECT task_name AS name, task_description AS description, due_at, priority, category, status
+         FROM tasks WHERE id = ?'
+    );
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function buildViewLink(string $view, array $filters): string {
+    $filters['view'] = $view === 'all' ? '' : $view;
+    $query = http_build_query(array_filter($filters, static fn ($value) => $value !== ''));
+    return 'index.php' . ($query === '' ? '' : '?' . $query);
+}
+
 $_SESSION['collapsed'] = $_SESSION['collapsed'] ?? false;
-$_SESSION['theme'] = $_SESSION['theme'] ?? 'dark';
+$_SESSION['theme'] = ($_SESSION['theme'] ?? 'dark') === 'light' ? 'light' : 'dark';
 $_SESSION['token'] = $_SESSION['token'] ?? bin2hex(random_bytes(32));
-$fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'todo'];
+$fields = ['name' => '', 'description' => '', 'due' => '', 'priority' => 'medium', 'category' => 'Coursework', 'status' => 'pending'];
 $errors = [];
 $showForm = isset($_GET['new']);
 $editing = false;
@@ -37,176 +50,182 @@ $taskId = null;
 $notice = $_SESSION['notice'] ?? '';
 unset($_SESSION['notice']);
 
-if (isset($_GET['edit'])) {
-    $requestedTaskId = is_string($_GET['edit']) && ctype_digit($_GET['edit']) ? (int) $_GET['edit'] : null;
-    if ($requestedTaskId !== null && array_key_exists($requestedTaskId, $_SESSION['new_tasks'])) {
-        $taskId = $requestedTaskId;
-        $fields = array_merge($fields, $_SESSION['new_tasks'][$taskId]);
-        $showForm = true;
-        $editing = true;
-    } else {
-        http_response_code(404);
-        $errors[] = 'Task not found.';
-    }
-}
+try {
+    require __DIR__ . '/db.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = posted('action');
-    if (!hash_equals($_SESSION['token'], posted('token'))) {
-        http_response_code(403);
-        $errors[] = 'Your form expired. Reload the page and try again.';
+    $stmt = $pdo->prepare('SELECT name FROM categories ORDER BY id');
+    $stmt->execute();
+    $categories = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-    // Toggle Sidebar Function
-    } elseif ($action === 'menu') {
-        $_SESSION['collapsed'] = !$_SESSION['collapsed'];
-    // Toggle Task Completion Function
-    } elseif ($action === 'toggle_complete') {
-        $postedTaskId = posted('task_id');
-        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
-            $taskId = (int) $postedTaskId;
-            $currentStatus = $_SESSION['new_tasks'][$taskId]['status'] ?? 'todo';
-            // Toggle between completed and todo
-            $_SESSION['new_tasks'][$taskId]['status'] = ($currentStatus === 'completed') ? 'todo' : 'completed';
-            $_SESSION['notice'] = 'Task status updated.';
-        } else {
-            http_response_code(404);
-            $errors[] = 'Task not found.';
-        }
-    // Toggle Theme Function
-    } elseif ($action === 'theme') {
-        $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
-    } elseif ($action === 'create_category') {
-        $catName = trim(posted('category_name'));
-        if ($catName !== '' && textLength($catName) <= 50) {
-            if (!in_array($catName, $_SESSION['categories'], true)) {
-                $_SESSION['categories'][] = $catName;
-                $_SESSION['notice'] = 'Category created.';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $action = inputText($_POST, 'action');
+        $taskId = taskId(inputText($_POST, 'task_id'));
+
+        if (!hash_equals($_SESSION['token'], inputText($_POST, 'token'))) {
+            http_response_code(403);
+            $errors[] = 'Your form expired. Reload the page and try again.';
+        } elseif ($action === 'menu') {
+            $_SESSION['collapsed'] = !$_SESSION['collapsed'];
+        } elseif ($action === 'theme') {
+            $_SESSION['theme'] = $_SESSION['theme'] === 'dark' ? 'light' : 'dark';
+        } elseif ($action === 'create_category') {
+            $category = inputText($_POST, 'category_name');
+            if ($category === '' || textLength($category) > 50) {
+                $errors[] = 'Category name must contain 1 to 50 characters.';
+            } else {
+                $stmt = $pdo->prepare('INSERT INTO categories (name) VALUES (?) ON DUPLICATE KEY UPDATE id = id');
+                $stmt->execute([$category]);
+                if ($stmt->rowCount() === 0) {
+                    $errors[] = 'That category already exists.';
+                } else {
+                    $_SESSION['notice'] = 'Category created.';
+                }
             }
-        } else {
-            $errors[] = 'Invalid category name.';
-        }
-
-    // Delete Task Function
-    } elseif ($action === 'delete') {
-        $postedTaskId = posted('task_id');
-        if ($postedTaskId !== '' && ctype_digit($postedTaskId) && array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
-            unset($_SESSION['new_tasks'][(int) $postedTaskId]);
-            $_SESSION['notice'] = 'Task deleted.';
-        } else {
-            http_response_code(404);
-            $errors[] = 'Task not found.';
-        }
-
-    // Create and Update/Edit Task Function
-    } elseif ($action === 'create' || $action === 'update') {
-        $editing = $action === 'update';
-        $showForm = true;
-        if ($editing) {
-            $postedTaskId = posted('task_id');
-            if ($postedTaskId === '' || !ctype_digit($postedTaskId) || !array_key_exists((int) $postedTaskId, $_SESSION['new_tasks'])) {
+        } elseif ($action === 'toggle_complete' || $action === 'delete') {
+            if ($taskId === null) {
                 http_response_code(404);
                 $errors[] = 'Task not found.';
-                $editing = false;
             } else {
-                $taskId = (int) $postedTaskId;
+                $stmt = $pdo->prepare($action === 'delete'
+                    ? 'DELETE FROM tasks WHERE id = ?'
+                    : "UPDATE tasks SET status = IF(status = 'completed', 'pending', 'completed') WHERE id = ?");
+                $stmt->execute([$taskId]);
+                if ($stmt->rowCount() === 0) {
+                    http_response_code(404);
+                    $errors[] = 'Task not found.';
+                } else {
+                    $_SESSION['notice'] = $action === 'delete' ? 'Task deleted.' : 'Task status updated.';
+                }
             }
+        } elseif ($action === 'create' || $action === 'update') {
+            $editing = $action === 'update';
+            $showForm = true;
+            foreach ($fields as $key => $default) {
+                $fields[$key] = inputText($_POST, $key, $default);
+            }
+
+            if ($editing && $taskId === null) {
+                http_response_code(404);
+                $errors[] = 'Task not found.';
+            }
+            if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
+                $errors[] = 'Task name must contain 3 to 100 characters.';
+            }
+            if ($fields['description'] === '' || textLength($fields['description']) > 255) {
+                $errors[] = 'Description must contain 1 to 255 characters.';
+            }
+            if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) {
+                $errors[] = 'Choose a valid priority.';
+            }
+            if (!in_array($fields['category'], $categories, true)) {
+                $errors[] = 'Choose a valid category.';
+            }
+            if (!in_array($fields['status'], ['pending', 'completed'], true)) {
+                $errors[] = 'Choose a valid status.';
+            }
+            $dueAt = null;
+            if ($fields['due'] !== '') {
+                $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
+                if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due'] || (int) $date->format('Y') < 1000) {
+                    $errors[] = 'Enter a valid due date and time.';
+                } else {
+                    $dueAt = $date->format('Y-m-d H:i:s');
+                }
+            }
+
+            if (!$errors) {
+                $values = [$fields['name'], $fields['description'], $dueAt, $fields['priority'], $fields['category'], $fields['status']];
+                if ($editing) {
+                    $stmt = $pdo->prepare(
+                        'UPDATE tasks SET task_name = ?, task_description = ?, due_at = ?, priority = ?, category = ?, status = ?
+                         WHERE id = ?'
+                    );
+                    $stmt->execute([...$values, $taskId]);
+                    if ($stmt->rowCount() === 0 && findTask($pdo, $taskId) === null) {
+                        http_response_code(404);
+                        $errors[] = 'Task not found.';
+                    } else {
+                        $_SESSION['notice'] = 'Task updated.';
+                    }
+                } else {
+                    $stmt = $pdo->prepare(
+                        'INSERT INTO tasks (task_name, task_description, due_at, priority, category, status) VALUES (?, ?, ?, ?, ?, ?)'
+                    );
+                    $stmt->execute($values);
+                    $_SESSION['notice'] = 'Task created.';
+                }
+            }
+        } else {
+            http_response_code(400);
+            $errors[] = 'Unknown form action.';
         }
-        foreach ($fields as $key => $default) $fields[$key] = posted($key, $default);
-        if (textLength($fields['name']) < 3 || textLength($fields['name']) > 100) {
-            $errors[] = 'Task name must contain 3 to 100 characters.';
-        }
-        if ($fields['description'] === '' || textLength($fields['description']) > 255) {
-            $errors[] = 'Description must contain 1 to 255 characters.';
-        }
-        if (!in_array($fields['priority'], ['high', 'medium', 'low'], true)) $errors[] = 'Choose a valid priority.';
-        if (!in_array($fields['category'], $_SESSION['categories'], true)) $errors[] = 'Choose a valid category.';
-        if (!in_array($fields['status'], ['todo', 'completed'], true)) $errors[] = 'Choose a valid status.';
-        if ($fields['due'] !== '') {
-            $date = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $fields['due']);
-            if (!$date || $date->format('Y-m-d\TH:i') !== $fields['due']) $errors[] = 'Enter a valid due date and time.';
-        }
+
         if (!$errors) {
-            if ($editing) {
-                $_SESSION['new_tasks'][$taskId] = $fields;
-                $_SESSION['notice'] = 'Task updated.';
-            } else {
-                $_SESSION['new_tasks'][] = $fields;
-                $_SESSION['notice'] = 'Task created.';
-            }
+            header('Location: index.php', true, 303);
+            exit;
         }
-    } else {
-        http_response_code(400);
-        $errors[] = 'Unknown form action.';
+        if (http_response_code() === 200) {
+            http_response_code(422);
+        }
+    } elseif (isset($_GET['edit'])) {
+        $taskId = taskId(inputText($_GET, 'edit'));
+        $task = $taskId === null ? null : findTask($pdo, $taskId);
+        if ($task === null) {
+            http_response_code(404);
+            $errors[] = 'Task not found.';
+        } else {
+            $fields = array_replace($fields, array_intersect_key($task, $fields));
+            $fields['due'] = $task['due_at'] === null ? '' : str_replace(' ', 'T', substr($task['due_at'], 0, 16));
+            $showForm = true;
+            $editing = true;
+        }
     }
-    if (!$errors) {
-        header('Location: index.php', true, 303);
-        exit;
-    }
-    if (http_response_code() === 200) http_response_code(422);
+
+    $stmt = $pdo->prepare(
+        'SELECT id, task_name AS name, task_description AS description, due_at, priority, category, status
+         FROM tasks ORDER BY id'
+    );
+    $stmt->execute();
+    $tasks = $stmt->fetchAll();
+} catch (PDOException $error) {
+    error_log('Block Tasks database error: ' . $error->getMessage());
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=UTF-8');
+    exit('Database unavailable. Check the connection settings and import task_db.sql.');
 }
 
-$samples = [
-    /*['Prepare Lab Activity 4', 'Review the requirements and finish the design draft.', 'Today, 10:00 AM', 'high', 'Coursework', 'todo'], SAMPLE DATA FORMAT PAG MAGLALAGAY NG DUMMY DATA*/
-];
 $columns = ['todo' => 'To do', 'overdue' => 'Overdue', 'completed' => 'Completed'];
-$tasks = [];
-foreach ($samples as [$name, $description, $due, $priority, $category, $status]) {
-    $tasks[] = compact('name', 'description', 'due', 'priority', 'category', 'status') + ['sample' => true];
-}
-foreach ($_SESSION['new_tasks'] as $taskId => $task) {
-    $task['status'] = taskStatus($task);
-    $task['due'] = $task['due'] !== '' ? date('M j, Y, g:i A', strtotime($task['due'])) : 'No due date';
-    $task['session_id'] = $taskId;
-    $tasks[] = $task;
-}
-
-$searchQuery = trim($_GET['search'] ?? '');
-$priorityFilter = $_GET['priority'] ?? '';
-$dueStatusFilter = $_GET['due_status'] ?? '';
-$viewFilter = $_GET['view'] ?? 'all';
-
-// 1. Apply search, priority, and due status filters first
-if ($searchQuery !== '' || $priorityFilter !== '' || $dueStatusFilter !== '') {
-    $tasks = array_filter($tasks, function($task) use ($searchQuery, $priorityFilter, $dueStatusFilter) {
-        $matchesSearch = true;
-        $matchesPriority = true;
-        $matchesDueStatus = true;
-
-        if ($searchQuery !== '') {
-            $matchesSearch = stripos($task['name'], $searchQuery) !== false || stripos($task['description'], $searchQuery) !== false;
-        }
-
-        if ($priorityFilter !== '') {
-            $matchesPriority = strtolower($task['priority']) === strtolower($priorityFilter);
-        }
-
-        if ($dueStatusFilter !== '') {
-            $matchesDueStatus = strtolower($task['status']) === strtolower($dueStatusFilter);
-        }
-
-        return $matchesSearch && $matchesPriority && $matchesDueStatus;
-    });
-}
-
-// 2. Calculate stable counts and totals before view filtering
 $counts = array_fill_keys(array_keys($columns), 0);
-foreach ($tasks as $task) {
-    if (isset($counts[$task['status']])) {
-        $counts[$task['status']]++;
-    }
-}
-$total = count($tasks);
+$tasksByStatus = array_fill_keys(array_keys($columns), []);
+$search = inputText($_GET, 'search');
+$priorityFilter = strtolower(inputText($_GET, 'priority'));
+$dueStatusFilter = strtolower(inputText($_GET, 'due_status'));
+$view = inputText($_GET, 'view', 'all');
+$filters = ['search' => $search, 'priority' => $priorityFilter, 'due_status' => $dueStatusFilter];
+$now = time();
 
-// 3. Apply the view tab filter only for rendering the board columns
-if ($viewFilter === 'active') {
-    $tasks = array_filter($tasks, function($task) {
-        return $task['status'] !== 'completed';
-    });
-} elseif ($viewFilter === 'completed') {
-    $tasks = array_filter($tasks, function($task) {
-        return $task['status'] === 'completed';
-    });
+foreach ($tasks as $task) {
+    $due = $task['due_at'] === null ? null : strtotime($task['due_at']);
+    $status = $task['status'] === 'completed' ? 'completed' : ($due !== null && $due < $now ? 'overdue' : 'todo');
+
+    if ($search !== '' && stripos($task['name'], $search) === false && stripos($task['description'], $search) === false) {
+        continue;
+    }
+    if ($priorityFilter !== '' && $priorityFilter !== $task['priority']) {
+        continue;
+    }
+    if ($dueStatusFilter !== '' && $dueStatusFilter !== $status) {
+        continue;
+    }
+
+    $counts[$status]++;
+    if (($view === 'active' && $status === 'completed') || ($view === 'completed' && $status !== 'completed')) {
+        continue;
+    }
+    $task['due'] = $due === null ? 'No due date' : date('M j, Y, g:i A', $due);
+    $tasksByStatus[$status][] = $task;
 }
+$total = array_sum($counts);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -216,6 +235,7 @@ if ($viewFilter === 'active') {
         <meta name="color-scheme" content="<?= $_SESSION['theme'] ?>">
         <title>Block Tasks | Task inventory</title>
         <link rel="stylesheet" href="style.css">
+        <script src="script.js" defer></script>
     </head>
     <body class="<?= $_SESSION['collapsed'] ? 'sidebar-collapsed' : '' ?> <?= $_SESSION['theme'] === 'light' ? 'light-theme' : '' ?>">
         <aside class="sidebar" aria-label="Workspace sidebar">
@@ -251,19 +271,14 @@ if ($viewFilter === 'active') {
             </nav>
             <h2 class="category-label">CATEGORIES</h2>
             <ul class="categories">
-                <?php 
-                $markers = ['coursework', 'study', 'personal'];
-                $i = 0;
-                foreach ($_SESSION['categories'] as $cat): 
-                    $markerClass = $markers[$i % count($markers)];
-                    $i++;
-                ?>
+                <?php $markers = ['coursework', 'study', 'personal']; ?>
+                <?php foreach ($categories as $index => $category): ?>
                     <li>
-                        <span class="category-marker <?= $markerClass ?>"></span>
-                        <?= escape($cat) ?>
+                        <span class="category-marker <?= $markers[$index % count($markers)] ?>"></span>
+                        <?= escape($category) ?>
                     </li>
                 <?php endforeach; ?>
-                <li><button type="button" class="text-button" onclick="openCategoryModal()">
+                <li><button type="button" class="text-button" id="open-category" aria-haspopup="dialog">
                     <img src="<?= iconPath($_SESSION['theme'] === 'light' ? 'plus2' : 'plus1') ?>" alt="">
                     <span>New category</span>
                 </button></li>
@@ -284,9 +299,9 @@ if ($viewFilter === 'active') {
                     <h1>Task Inventory</h1>
                     <p><?= date('l, j F Y') ?></p>
                 </div>
-                <form action="index.php" method="GET" class="search bevel" style="margin:0; background:var(--surface);">
+                <form action="index.php" method="GET" class="search bevel" role="search">
                     <img src="<?= iconPath('search') ?>" alt="">
-                    <input type="text" name="search" value="<?= escape($_GET['search'] ?? '') ?>" placeholder="Search task names or descriptions" style="border:0; background:transparent; width:100%; outline:none;">
+                    <input type="search" name="search" value="<?= escape($search) ?>" aria-label="Search tasks" placeholder="Search task names or descriptions">
                 </form>
                 <div class="header-rule"></div>
                 <button type="button" class="notification-button" aria-label="Notifications">
@@ -301,7 +316,7 @@ if ($viewFilter === 'active') {
             <section class="summary" aria-label="Task summary">
                 <header>
                     <h2>Your next task starts here.</h2>
-                    <p><?= $total ?> tasks this week. Plan, track, and complete.</p>
+                    <p><?= $total ?> <?= $total === 1 ? 'task' : 'tasks' ?> on this board.</p>
                 </header>
                 <?php foreach ($columns as $status => $label): ?>
                     <div class="stat <?= $status ?>-stat">
@@ -312,43 +327,33 @@ if ($viewFilter === 'active') {
             </section>
             <div class="toolbar" aria-label="Task filters">
                 <div class="view-filters">
-                    <?php 
-                    // Helper to build query parameters while keeping search/priority intact
-                    function buildViewLink($viewName, $extraParams) {
-                        $params = $extraParams;
-                        if ($viewName !== 'all') {
-                            $params['view'] = $viewName;
-                        } else {
-                            unset($params['view']);
-                        }
-                        return 'index.php' . (!empty($params) ? '?' . http_build_query($params) : '');
-                    }
-                    $currentView = $_GET['view'] ?? 'all';
-                    $baseParams = $_GET;
-                    ?>
-                    <a href="<?= escape(buildViewLink('all', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'all' ? 'selected' : '' ?>">All tasks · <?= $total ?></a>
-                    <a href="<?= escape(buildViewLink('active', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'active' ? 'selected' : '' ?>">Active · <?= $total - $counts['completed'] ?></a>
-                    <a href="<?= escape(buildViewLink('completed', $baseParams)) ?>" class="view-filter-btn <?= $currentView === 'completed' ? 'selected' : '' ?>">Completed · <?= $counts['completed'] ?></a>
+                    <a href="<?= escape(buildViewLink('all', $filters)) ?>" class="view-filter-btn <?= $view === 'all' ? 'selected' : '' ?>">All tasks · <?= $total ?></a>
+                    <a href="<?= escape(buildViewLink('active', $filters)) ?>" class="view-filter-btn <?= $view === 'active' ? 'selected' : '' ?>">Active · <?= $total - $counts['completed'] ?></a>
+                    <a href="<?= escape(buildViewLink('completed', $filters)) ?>" class="view-filter-btn <?= $view === 'completed' ? 'selected' : '' ?>">Completed · <?= $counts['completed'] ?></a>
                 </div>
                 <div class="toolbar-rule"></div>
                 <form action="index.php" method="GET" class="sort-filters">
-                    <?php if (!empty($_GET['search'])): ?>
-                        <input type="hidden" name="search" value="<?= escape($_GET['search']) ?>">
+                    <?php if ($search !== ''): ?>
+                        <input type="hidden" name="search" value="<?= escape($search) ?>">
                     <?php endif; ?>
-                    
-                    <select name="priority" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
+                    <?php if ($view !== 'all'): ?>
+                        <input type="hidden" name="view" value="<?= escape($view) ?>">
+                    <?php endif; ?>
+
+                    <select name="priority" aria-label="Filter by priority">
                         <option value="">All priorities</option>
-                        <option value="high" <?= (($_GET['priority'] ?? '') === 'high') ? 'selected' : '' ?>>High priority</option>
-                        <option value="medium" <?= (($_GET['priority'] ?? '') === 'medium') ? 'selected' : '' ?>>Medium priority</option>
-                        <option value="low" <?= (($_GET['priority'] ?? '') === 'low') ? 'selected' : '' ?>>Low priority</option>
+                        <option value="high" <?= $priorityFilter === 'high' ? 'selected' : '' ?>>High priority</option>
+                        <option value="medium" <?= $priorityFilter === 'medium' ? 'selected' : '' ?>>Medium priority</option>
+                        <option value="low" <?= $priorityFilter === 'low' ? 'selected' : '' ?>>Low priority</option>
                     </select>
 
-                    <select name="due_status" onchange="this.form.submit()" style="padding:10px; border:1px solid var(--border); background:var(--surface);">
+                    <select name="due_status" aria-label="Filter by status">
                         <option value="">Due date</option>
-                        <option value="todo" <?= (($_GET['due_status'] ?? '') === 'todo') ? 'selected' : '' ?>>To do</option>
-                        <option value="overdue" <?= (($_GET['due_status'] ?? '') === 'overdue') ? 'selected' : '' ?>>Overdue</option>
-                        <option value="completed" <?= (($_GET['due_status'] ?? '') === 'completed') ? 'selected' : '' ?>>Completed</option>
+                        <option value="todo" <?= $dueStatusFilter === 'todo' ? 'selected' : '' ?>>To do</option>
+                        <option value="overdue" <?= $dueStatusFilter === 'overdue' ? 'selected' : '' ?>>Overdue</option>
+                        <option value="completed" <?= $dueStatusFilter === 'completed' ? 'selected' : '' ?>>Completed</option>
                     </select>
+                    <noscript><button type="submit">Apply filters</button></noscript>
                 </form>
             </div>
             <section class="task-board" aria-label="Task inventory board">
@@ -359,54 +364,36 @@ if ($viewFilter === 'active') {
                             <h2 id="column-<?= $status ?>"><?= $label ?></h2>
                             <span class="task-count"><?= $counts[$status] ?></span>
                         </header>
-                        <?php foreach ($tasks as $task): ?>
-                            <?php if ($task['status'] !== $status) continue; ?>
+                        <?php foreach ($tasksByStatus[$status] as $task): ?>
                             <article class="task-card <?= $status === 'completed' ? 'is-complete' : '' ?>">
                                 <header class="card-meta">
                                     <span class="priority <?= $status === 'completed' ? 'low' : escape($task['priority']) ?>"><?= $status === 'completed' ? 'Completed' : ucfirst(escape($task['priority'])) . ' priority' ?></span>
                                     <span><?= escape($task['category']) ?></span>
                                 </header>
-                                <h3 class="task-heading">
-                                    <?php if (!empty($task['sample'])): ?>
-                                        <span class="task-checkbox" aria-hidden="true">
+                                <div class="task-heading">
+                                    <form action="index.php" method="POST" class="control-form">
+                                        <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                        <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                                        <button type="submit" class="task-checkbox" name="action" value="toggle_complete"
+                                            aria-label="<?= $status === 'completed' ? 'Reopen' : 'Complete' ?> <?= escape($task['name']) ?>">
                                             <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <form id="toggle-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" style="display:inline; margin:0;">
-                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                                            <input type="hidden" name="action" value="toggle_complete">
-                                            <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                            <label class="task-checkbox" style="cursor:pointer;" aria-label="Toggle task completion">
-                                                <input type="checkbox" <?= $status === 'completed' ? 'checked' : '' ?> onchange="document.getElementById('toggle-form-<?= (int) $task['session_id'] ?>').submit();" style="display:none;">
-                                                <?php if ($status === 'completed'): ?><img src="<?= iconPath('check') ?>" alt=""><?php endif; ?>
-                                            </label>
-                                        </form>
-                                    <?php endif; ?>
-                                    <span><?= escape($task['name']) ?></span>
-                                </h3>
+                                        </button>
+                                    </form>
+                                    <h3><?= escape($task['name']) ?></h3>
+                                </div>
                                 <p><?= escape($task['description']) ?></p>
                                 <footer class="card-footer">
                                     <img src="<?= iconPath('clock') ?>" alt="">
                                     <span><?= escape($task['due']) ?></span>
-                                    <?php if (!empty($task['sample'])): ?>
-                                        <div class="card-actions">
-                                            <button type="button" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
-                                            <button type="button" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
-                                        </div>
-                                    <?php else: ?>
-                                        <div class="card-actions">
-                                            <form action="index.php" method="GET" class="control-form">
-                                                <input type="hidden" name="edit" value="<?= (int) $task['session_id'] ?>">
-                                                <button type="submit" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></button>
-                                            </form>
-                                            <form id="delete-form-<?= (int) $task['session_id'] ?>" action="index.php" method="POST" class="control-form">
-                                                <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="task_id" value="<?= (int) $task['session_id'] ?>">
-                                                <button type="button" onclick="openDeleteModal(<?= (int) $task['session_id'] ?>)" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
-                                            </form>
-                                        </div>
-                                    <?php endif; ?>
+                                    <div class="card-actions">
+                                        <a href="index.php?edit=<?= (int) $task['id'] ?>" aria-label="Edit <?= escape($task['name']) ?>"><img src="<?= iconPath('edit') ?>" alt=""></a>
+                                        <form action="index.php" method="POST" class="control-form delete-task">
+                                            <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                                            <button type="button" aria-haspopup="dialog" aria-label="Delete <?= escape($task['name']) ?>"><img src="<?= iconPath('trash') ?>" alt=""></button>
+                                        </form>
+                                    </div>
                                 </footer>
                             </article>
                         <?php endforeach; ?>
@@ -432,7 +419,7 @@ if ($viewFilter === 'active') {
                             <?php foreach ($errors as $error): ?><li><?= escape($error) ?></li><?php endforeach; ?>
                         </ul>
                     <?php endif; ?>
-                    <form action="index.php<?= $editing && $taskId !== null ? '?edit=' . (int) $taskId : '' ?>" method="POST" class="create-form">
+                    <form action="index.php" method="POST" class="create-form">
                         <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
                         <input type="hidden" name="action" value="<?= $editing ? 'update' : 'create' ?>">
                         <?php if ($editing && $taskId !== null): ?>
@@ -454,13 +441,13 @@ if ($viewFilter === 'active') {
                         </fieldset>
                         <label for="task-category">Category</label>
                         <select id="task-category" name="category">
-                            <?php foreach ($_SESSION['categories'] as $category): ?>
+                            <?php foreach ($categories as $category): ?>
                                 <option value="<?= escape($category) ?>" <?= $fields['category'] === $category ? 'selected' : '' ?>><?= escape($category) ?></option>
                             <?php endforeach; ?>
                         </select>
                         <label for="task-status">Status</label>
                         <select id="task-status" name="status">
-                            <option value="todo" <?= $fields['status'] === 'todo' ? 'selected' : '' ?>>To do</option>
+                            <option value="pending" <?= $fields['status'] === 'pending' ? 'selected' : '' ?>>To do</option>
                             <option value="completed" <?= $fields['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
                         </select>
                         <footer class="form-actions">
@@ -472,59 +459,27 @@ if ($viewFilter === 'active') {
             </aside>
         <?php endif; ?>
 
-        <!-- Custom Centered Delete Confirmation Modal -->
-        <div id="delete-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
-            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:400px; max-width:90%; display:grid; gap:20px;">
-                <h2 style="font-size:32px; color:var(--text); font-family:var(--pixel);">Delete</h2>
-                <p style="color:var(--muted); font-size:18px;">Are you sure you want to delete this task?</p>
-                <div style="display:flex; gap:10px;">
-                    <button type="button" id="confirm-delete-btn" style="flex:1; padding:12px; border:2px solid #263024; background:#b54730; box-shadow:var(--bevel); color:#f0f1e8; font:700 18px/1.4 var(--pixel); cursor:pointer;">Delete task</button>
-                    <button type="button" onclick="closeDeleteModal()" style="flex:1; padding:12px; border:1px solid var(--border); background:var(--surface); color:var(--text); font:700 18px/1.4 var(--pixel); cursor:pointer;">Cancel</button>
+        <dialog id="delete-dialog" class="board-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
+            <h2 id="delete-title">Delete task</h2>
+            <p id="delete-description">Are you sure you want to delete this task?</p>
+            <form method="dialog" class="form-actions">
+                <button type="button" id="confirm-delete" class="primary-button danger-button">Delete task</button>
+                <button class="secondary-button" autofocus>Cancel</button>
+            </form>
+        </dialog>
+
+        <dialog id="category-dialog" class="board-dialog" aria-labelledby="category-title">
+            <h2 id="category-title">Create category</h2>
+            <form action="index.php" method="POST" class="create-form">
+                <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
+                <input type="hidden" name="action" value="create_category">
+                <label for="modal-cat-name">Category name</label>
+                <input id="modal-cat-name" name="category_name" required maxlength="50" autofocus>
+                <div class="form-actions">
+                    <button type="submit" class="primary-button">Create category</button>
+                    <button type="button" id="cancel-category" class="secondary-button">Cancel</button>
                 </div>
-            </div>
-        </div>
-
-        <div id="category-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; place-items:center;">
-            <div style="background:var(--surface); border:2px solid var(--border); box-shadow:var(--bevel); padding:28px; width:390px; max-width:90%; display:grid; gap:20px;">
-                <h2 style="font-size:24px; color:var(--text); font-family:var(--pixel);">Create Category</h2>
-                <form action="index.php" method="POST" style="display:grid; gap:16px;">
-                    <input type="hidden" name="token" value="<?= escape($_SESSION['token']) ?>">
-                    <input type="hidden" name="action" value="create_category">
-                    <label for="modal-cat-name" style="font:700 18px/1.4 var(--pixel); color:var(--text);">Category name</label>
-                    <input id="modal-cat-name" name="category_name" placeholder="Enter a category name" required maxlength="50" style="width:100%; padding:14px; border:2px solid var(--border); background:var(--canvas); color:var(--text); font:inherit; box-shadow:var(--bevel);">
-                    <div style="display:flex; gap:10px; margin-top:4px;">
-                        <button type="submit" class="primary-button"><img src="image/dark/icon-form-plus.svg" alt="">Create Category</button>
-                        <button type="button" onclick="closeCategoryModal()" class="secondary-button" style="color: #000;">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <script>
-            // Delete Modal Script
-            let activeDeleteTaskId = null;
-            function openDeleteModal(taskId) {
-                activeDeleteTaskId = taskId;
-                document.getElementById('delete-modal-overlay').style.display = 'grid';
-            }
-            function closeDeleteModal() {
-                activeDeleteTaskId = null;
-                document.getElementById('delete-modal-overlay').style.display = 'none';
-            }
-            document.getElementById('confirm-delete-btn').addEventListener('click', function() {
-                if (activeDeleteTaskId !== null) {
-                    document.getElementById('delete-form-' + activeDeleteTaskId).submit();
-                }
-            });
-
-            // Category Modal Script
-            function openCategoryModal() {
-                document.getElementById('category-modal-overlay').style.display = 'grid';
-                document.getElementById('modal-cat-name').focus();
-            }
-            function closeCategoryModal() {
-                document.getElementById('category-modal-overlay').style.display = 'none';
-            }
-        </script>
+            </form>
+        </dialog>
     </body>
 </html>

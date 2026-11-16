@@ -230,6 +230,12 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
     color: var(--muted);
     white-space: nowrap;
 }
+.search input {
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+}
 .bevel { box-shadow: var(--bevel); }
 .notification-button { padding: 14px; border: 1px solid var(--border); background: var(--surface); }
 .new-task { flex-shrink: 0; }
@@ -260,6 +266,11 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .view-filters button { color: var(--muted); }
 .view-filters .selected { font-family: var(--pixel); }
 .sort-filters button { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); }
+.sort-filters select {
+    padding: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
 
 /* Task cards */
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 18px; }
@@ -281,7 +292,8 @@ h1 { font-size: clamp(28px, 2.5vw, 38px); }
 .high { color: #f49c79; }
 .medium { color: #b0da83; }
 .low { color: #8fcc67; }
-.task-heading { align-items: flex-start; font-size: 25px; }
+.task-heading { align-items: flex-start; }
+.task-heading h3 { font-size: 25px; }
 .task-checkbox {
     display: block;
     flex: none;
@@ -354,6 +366,21 @@ body:has(.task-panel) { display: grid; grid-template-columns: minmax(0, 1fr) 424
 .notice, .errors { padding: 14px 18px; border: 1px solid var(--border); background: var(--surface); }
 .notice { border-left: 4px solid #8fcc67; }
 .errors { padding-left: 32px; border-left: 4px solid #b54730; }
+
+.board-dialog {
+    width: 400px;
+    max-width: calc(100% - 32px);
+    padding: 26px;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--bevel);
+    color: var(--text);
+}
+.board-dialog::backdrop { background: #0009; }
+.board-dialog h2 { font-size: 24px; }
+.board-dialog > p { margin: 12px 0 18px; color: var(--muted); }
+.board-dialog .secondary-button { color: var(--text); }
+.danger-button { background: #b54730; }
 
 /* Light theme details */
 .light-theme .sidebar { background: var(--green); --surface: #ecede6; }
